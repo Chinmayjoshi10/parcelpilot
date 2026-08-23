@@ -702,7 +702,38 @@ class Orchestrator:
                 duration_ms=int((time.monotonic() - step_started) * 1000),
             )
 
-            if insufficient and not claims:
+            # No claims is not an answer, whatever the model said about its
+            # evidence.
+            #
+            # The condition used to be `insufficient and not claims`, so a
+            # response with ZERO claims and `insufficient_evidence: false` fell
+            # through to validation. Validating nothing rejects nothing, so
+            # `outcome.ok` was false with an empty `reasons` list, and the run
+            # refused as CITATION_VALIDATION_FAILED — telling the user "I could
+            # not produce an answer whose every statement traces to a source"
+            # when there were no statements and nothing had been rejected. The
+            # empty reasons list was the tell.
+            #
+            # That is the same defect class as the fabricated action state: the
+            # system asserting something untrue about its own workings. A wrong
+            # reason is worse than a vague one, because it sends whoever reads
+            # the trace after the wrong problem — I went looking for a citation
+            # bug that did not exist.
+            #
+            # It is also intermittent: the same question answered with two claims
+            # on the previous attempt. So this is a real robustness hole, not a
+            # property of one phrasing.
+            if not claims:
+                if not insufficient:
+                    log.warning(
+                        "model_returned_no_claims_but_claimed_sufficient_evidence",
+                        attempt=attempt,
+                    )
+                    if attempt < attempts:
+                        # Contradictory response. Worth one retry before refusing,
+                        # because the same prompt produced a good answer moments
+                        # earlier.
+                        continue
                 return self._refuse(
                     conn,
                     state,

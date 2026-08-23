@@ -723,3 +723,70 @@ class TestInvisibleRecordTerminatesTheRun:
             _principal("ACCT-001"),
         )
         assert response.answer.refusal.escalation_offered is True
+
+
+class TestContradictoryModelResponse:
+    """Zero claims is not an answer, whatever the model says about its evidence.
+
+    A response with no claims and `insufficient_evidence: false` used to fall
+    through to validation. Validating nothing rejects nothing, so the outcome was
+    "not ok" with an empty reasons list, and the run refused as
+    CITATION_VALIDATION_FAILED — telling the user "I could not produce an answer
+    whose every statement traces to a source" when there were no statements and
+    nothing had been rejected.
+
+    A wrong reason is worse than a vague one: it sends whoever reads the trace
+    after a problem that does not exist.
+    """
+
+    async def test_no_claims_refuses_with_an_honest_reason(self):
+        route = {
+            "reasoning": "r",
+            "out_of_scope": False,
+            "tools": [{"tool": "doc_search", "search_query": "cancellation fee"}],
+        }
+        # The contradiction: nothing to say, but evidence claimed sufficient.
+        response = await _run(
+            ScriptedLLM(
+                route, lambda *_: {"claims": [], "insufficient_evidence": False}
+            ),
+            "cancellation fee?",
+        )
+
+        assert response.answer.refusal is not None
+        assert response.answer.refusal.reason is RefusalReason.LOW_CONFIDENCE, (
+            "an empty answer is low confidence, not a citation failure"
+        )
+
+    async def test_it_retries_before_giving_up(self):
+        """The same prompt answered fine moments earlier, so retry once."""
+        route = {
+            "reasoning": "r",
+            "out_of_scope": False,
+            "tools": [{"tool": "doc_search", "search_query": "cancellation fee"}],
+        }
+        calls = {"n": 0}
+
+        def synthesise(*_):
+            calls["n"] += 1
+            return {"claims": [], "insufficient_evidence": False}
+
+        await _run(ScriptedLLM(route, synthesise), "cancellation fee?")
+        assert calls["n"] >= 2, "a contradictory response deserves one retry"
+
+    async def test_an_honest_insufficient_does_not_retry(self):
+        """"I checked and there is nothing" is a real answer; don't burn a call."""
+        route = {
+            "reasoning": "r",
+            "out_of_scope": False,
+            "tools": [{"tool": "doc_search", "search_query": "cancellation fee"}],
+        }
+        calls = {"n": 0}
+
+        def synthesise(*_):
+            calls["n"] += 1
+            return {"claims": [], "insufficient_evidence": True}
+
+        response = await _run(ScriptedLLM(route, synthesise), "cancellation fee?")
+        assert calls["n"] == 1
+        assert response.answer.refusal.reason is RefusalReason.LOW_CONFIDENCE
