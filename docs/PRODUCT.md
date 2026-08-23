@@ -58,7 +58,7 @@ without ever bypassing the human.
 
 ---
 
-## 2. What we would build next, in priority order
+## 2. What I would build next, in priority order
 
 **1. pgvector and an embedding cache.** The scaling ceiling. Dense retrieval is
 currently a sequential scan — fine at a few thousand chunks, unusable at a
@@ -84,7 +84,7 @@ a way documents are not. Store `synced_at`, surface it, and refuse when a field
 is older than its SLA — the same shape as the eligibility gate. A six-hour-old
 answer to "is this ticket still open?" is worse than a refusal.
 
-**5. Guarded exploratory SQL.** We rejected text-to-SQL because injection could
+**5. Guarded exploratory SQL.** I rejected text-to-SQL because injection could
 leak across accounts — but that risk existed *because tenancy lived in
 application code*. With RLS, a read-only role and statement timeouts, guarded SQL
 becomes defensible for **exploration** ("how many late pickups by carrier last
@@ -127,7 +127,7 @@ nothing about whether the product is *right*.
   like any other id. That is an afternoon of work and an afternoon of testing,
   and shipping the first half alone would have put an untested path into a
   money-moving tool to look more complete.
-- **A business-hours calendar.** One agreement quotes business hours; we
+- **A business-hours calendar.** One agreement quotes business hours; I
   approximate wall-clock and **label it** everywhere it surfaces. Showing an
   imperfect figure honestly beats showing a wrong one confidently.
 - **Answers to purely data-shaped questions.** "List the open tickets" returns

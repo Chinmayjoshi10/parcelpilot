@@ -1,7 +1,7 @@
 # ParcelPilot — Technical Decisions, Rationale, and What I Learned
 
 > Engineering record for the Calquity assessment. What was built, why each
-> choice was made, what we rejected, and the defects the build surfaced.
+> choice was made, what I rejected, and the defects the build surfaced.
 
 **Scale:** 11,322 lines of engine + API, 4,093 lines of tests and eval, 1,959 lines of frontend, 882 lines of SQL. 16 tables, 16 RLS policies, 6 migrations, 156 tests, 22 validated policy parameters.
 
@@ -36,7 +36,7 @@ structurally hard, and being unsure cheap.**
 (`parcelpilot_app`) being neither a superuser nor a table owner — because
 Postgres exempts both from RLS.
 
-**What we rejected.** The original plan injected `WHERE account_id = ?` into SQL
+**What I rejected.** The original plan injected `WHERE account_id = ?` into SQL
 templates via a `{account_filter}` placeholder. That is the standard approach and
 it is a latent breach: one template authored without the placeholder leaks, and
 it will be found by a customer rather than a test.
@@ -55,7 +55,7 @@ CREATE POLICY orders_scope ON orders
     USING (tenant_id = app_tenant() AND app_can_see_account(account_id));
 ```
 
-**Consequence we did not anticipate.** It changes what is safe elsewhere. We
+**Consequence I did not anticipate.** It changes what is safe elsewhere. I
 originally rejected text-to-SQL because "injection can leak across accounts" —
 but that risk existed *because tenancy lived in application code*. With RLS, a
 read-only role and statement timeouts, guarded SQL for *exploration* becomes
@@ -71,7 +71,7 @@ defensible. That is documented as the scaling path, not built.
 - **authority** — an integer, compared only against other authorities, applied at
   conflict-resolution time
 
-**What we rejected.** The obvious scoring function:
+**What I rejected.** The obvious scoring function:
 
 ```python
 final = relevance * 0.7 + authority * 0.2 + freshness * 0.1   # rejected
@@ -116,7 +116,7 @@ not a retrieval guess.
 amounts, not merely that code ran — and pairs every override case with a
 counterfactual: ORD-1001 resolved *without* the agreement flips to a fee, ORD-2002
 pays 240 instead of 300. If those passed identically the override machinery would
-be decorative and we would not know.
+be decorative and I would not know.
 
 **Where "unknown" goes.** `INDETERMINATE` is a first-class verdict, and the only
 one permitted to omit a citation. Missing timestamps, unattributed fault,
@@ -155,7 +155,7 @@ mid-sentence, so a quote written on one line must still be locatable — while
 would produce a validator that rejects *correct* citations, which is worse than
 none, because the team would switch it off.
 
-**This mechanism caught a real error during the build.** Adding SLA targets, we
+**This mechanism caught a real error during the build.** Adding SLA targets, I
 declared them under the `default` section, whose `source_document` is the SOP —
 but the targets table lives in the *support policy*. Validation failed
 immediately. The fix was to let a parameter name its own document, which is
@@ -248,7 +248,7 @@ mis-ordered flip is rejected by the database rather than leaving two live indexe
 
 ## 3. Decisions inherited and deliberately kept
 
-- **No agent framework.** A ~400-line orchestrator we can read entirely. The
+- **No agent framework.** A ~400-line orchestrator I can read entirely. The
   security hooks (scoped connections, the eligibility gate, the validator) are
   in the loop, not around a framework's.
 - **No text-to-SQL.** A template registry is the whole allowed query surface;
@@ -578,7 +578,7 @@ nothing. Two separate bugs sat underneath that one symptom.
 matched verb opened the sentence or a polite frame preceded it. "Issue a service
 credit" satisfies neither — "issue" was in no list, and "credit" sits four words
 in. So the credit path was unreachable by the most natural phrasing there is,
-including the one in our own catalog. Fixed with transitive imperative openers
+including the one in my own catalog. Fixed with transitive imperative openers
 (`issue/grant/apply/raise/give/add/put/process`), plus a narrow pattern for
 "raise this to P1" where no listed verb appears at all. The enquiry veto still
 runs first, so "How do I issue a credit?" still stages nothing.
@@ -602,7 +602,7 @@ verbatim quote from a source, and no clause in the corpus says "you are not
 authorised to request this". The instruction asked for an uncitable claim, so the
 model silently dropped it.
 
-A fact about our own system state is not a claim about the world. We know it
+A fact about the system's own state is not a claim about the world. It is known
 deterministically, it needs no evidence, and routing it through a component that
 must cite everything is the wrong shape. So `runs.action_notice` (migration 007)
 carries it, server-authored, rendered as a system notice styled unlike the
@@ -681,7 +681,7 @@ for each claim, checking the ledger and the run log rather than the prose.
 
 ---
 
-## 5. What we learned — the defects the build surfaced
+## 5. What I learned — the defects the build surfaced
 
 Every one of these was found by a test or by running the thing, not by review.
 They are the strongest evidence the harness earns its keep.
@@ -950,7 +950,7 @@ configuration on top of it.
 
 ---
 
-## 7. The metric we would run the product on
+## 7. The metric I would run the product on
 
 > **First-contact correct resolution rate, with appropriate escalation**
 > `(correct cited answers + correct refusals) / total questions`
