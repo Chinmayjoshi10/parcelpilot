@@ -95,6 +95,41 @@ RECORD_TEMPLATES: dict[str, str] = {
 }
 
 
+#: Cohort queries, for questions that name no single record.
+#:
+#: "Show me all open P1 tickets across accounts" has no id to look up, so the
+#: record templates above cannot serve it -- and the answer lives in a table, not
+#: a PDF, so document search finds nothing citable and the run refuses. Both
+#: headline internal workflows failed that way while the dashboard computed the
+#: same answers correctly one tab away.
+#:
+#: These are still fixed templates: there is no path from a model-generated
+#: string to the database. Filters are bound parameters, and every row comes back
+#: through the SCOPED connection -- so a customer running this sees only their
+#: own tickets, and the same SQL is safe for both audiences.
+COHORT_TEMPLATES: dict[str, str] = {
+    "open_tickets": """
+        SELECT t.ticket_id, t.account_id, a.account_name, t.status, t.subject,
+               t.created_at, t.last_customer_message_at, t.assigned_to
+        FROM tickets t
+        JOIN accounts a ON a.tenant_id = t.tenant_id AND a.account_id = t.account_id
+        WHERE t.status <> 'closed'
+          AND (%(account_id)s::text IS NULL OR t.account_id = %(account_id)s::text)
+        ORDER BY t.created_at
+        LIMIT 50
+    """,
+    "tickets_by_account": """
+        SELECT t.ticket_id, t.account_id, a.account_name, t.status, t.subject,
+               t.created_at, t.historical_resolution IS NOT NULL AS has_history
+        FROM tickets t
+        JOIN accounts a ON a.tenant_id = t.tenant_id AND a.account_id = t.account_id
+        WHERE (%(account_id)s::text IS NULL OR t.account_id = %(account_id)s::text)
+        ORDER BY t.created_at DESC
+        LIMIT 50
+    """,
+}
+
+
 #: Record identifiers, which have a fixed shape in this domain. Extracting one
 #: from the user's own words is deterministic and cannot invent an id -- and
 #: whatever it finds is still resolved through the scoped connection, so RLS
@@ -281,9 +316,45 @@ class Orchestrator:
                     "The reasoning service is unavailable.",
                 )
             except ParcelPilotError as exc:
-                self._step(conn, state, StepKind.ERROR, "failed", {"error": exc.message})
-                self._finish(conn, state, RunStatus.FAILED, error=exc.message)
+                self._mark_failed(conn, state, exc.message)
                 raise
+            except Exception as exc:  # noqa: BLE001 - see below
+                # A catch-all, because the alternative is worse than a broad
+                # except. Any exception type this block does not name propagates
+                # with the run still marked `running`, and nothing ever moves it:
+                # the SSE stream holds until its 300-second ceiling and the UI
+                # spins forever. A crash the user can see beats a crash that
+                # looks like slowness.
+                log.exception("run_crashed")
+                self._mark_failed(conn, state, f"{type(exc).__name__}: {exc}")
+                raise
+
+    def _mark_failed(self, conn: Connection, state: _RunState, message: str) -> None:
+        """Record a run as failed, on a connection that may be unusable.
+
+        THE BUG THIS FIXES. A malformed query raised `RepositoryError`, the
+        handler above caught it and called `_step` then `_finish` to record the
+        failure — and both of those silently failed too, because PostgreSQL had
+        already aborted the transaction. Every statement after an error in the
+        same transaction raises `current transaction is aborted`. So the status
+        stayed `running` forever, the stream held open, and a hard SQL error
+        presented as an infinitely spinning UI.
+
+        The error handler could not report the error. Rolling back first is what
+        makes the connection usable again — and `ScopedConnection` re-binds the
+        RLS scope on rollback, so the writes below are still correctly scoped.
+        """
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001 - nothing better to do than continue
+            log.warning("rollback_failed_before_marking_run_failed")
+        try:
+            self._step(conn, state, StepKind.ERROR, "failed", {"error": message})
+            self._finish(conn, state, RunStatus.FAILED, error=message)
+        except Exception:  # noqa: BLE001 - last resort
+            # If even this fails the run is unrecoverable, but say so in the log
+            # rather than leaving a silent `running` row behind.
+            log.exception("could_not_mark_run_failed", run_id=str(state.run_id))
 
     # -- pipeline ----------------------------------------------------------
 
@@ -383,6 +454,12 @@ class Orchestrator:
         retrieval = RetrievalResult()
         decisions: list[PolicyDecision] = []
         records: list[dict[str, Any]] = []
+        #: Findings from the deterministic detectors, when the question was about
+        #: a cohort rather than a record. Carried separately from `decisions`
+        #: because an Issue describes a population and a PolicyDecision describes
+        #: one subject, and blurring them would let the model attribute a
+        #: tenant-wide count to a single order.
+        issues: list[Any] = []
         policy: ResolvedPolicy | None = None
         prepared_action: ActionView | None = None
         action_error: str | None = None
@@ -440,6 +517,20 @@ class Orchestrator:
                 # logged. See `_invisible_records` below for why.
                 if requested_id:
                     (resolved_ids if found else invisible_ids).add(str(requested_id))
+
+            elif tool == "cohort_query":
+                # A question about a SET of records rather than one named record.
+                rows, detail = self._cohort(conn, principal, call)
+                records.extend(rows)
+
+            elif tool == "issue_scan":
+                # The deterministic detectors the proactive dashboard already
+                # runs, reachable from chat. They return a `Citation` for every
+                # threshold they apply, which is what lets an answer built on one
+                # pass the same validation as any other -- so this is the
+                # `policy_decide` pattern, applied to cohorts.
+                found, detail = self._scan_issues(conn, principal, call, now)
+                issues.extend(found)
 
             elif tool == "prepare_action":
                 # The state-changing tool. It PREPARES only: the ledger row is
@@ -522,13 +613,21 @@ class Orchestrator:
         # engine told the model to quote, and every policy answer would refuse.
         # Admitting it here keeps one validation path rather than exempting
         # policy citations from checking.
-        retrieval = self._admit_decision_clauses(conn, retrieval, decisions)
+        # Detector findings carry clauses too, for the same reason and with the
+        # same consequence if they are left out.
+        retrieval = self._admit_decision_clauses(
+            conn, retrieval, [*decisions, *issues]
+        )
 
         self._persist_candidates(conn, state, principal, retrieval)
 
-        # A policy decision carries its own clause, so it can answer even when
-        # free-text retrieval found nothing citable.
-        if not retrieval.groundable and not decisions:
+        # A policy decision or a detector finding carries its own clause, so
+        # either can answer even when free-text retrieval found nothing citable.
+        # This is exactly why the ops questions used to refuse: their answers
+        # live in a table, so `doc_search` returned nothing groundable and the
+        # run stopped here with `low_confidence` while the dashboard had the
+        # answer all along.
+        if not retrieval.groundable and not decisions and not issues:
             return self._refuse(
                 conn,
                 state,
@@ -634,7 +733,71 @@ class Orchestrator:
                 },
             )
 
-            if outcome.ok:
+            # Partial acceptance, on the last attempt only.
+            #
+            # WHY. "Is TKT-501 an SLA breach?" produced three claims. Two
+            # validated. The third quoted `P1\nEnterprise\n30 minutes, 24x7` --
+            # a row-and-column intersection of the SLA table, which the PDF
+            # flattens COLUMN-MAJOR:
+            #
+            #     Plan / P1 / P2 / P3 / Enterprise / 30 minutes, 24x7 / 2 hours
+            #
+            # The model reconstructed the table's MEANING correctly and then
+            # could not cite it, because those tokens are not contiguous in the
+            # text. Verbatim span validation is structurally incompatible with a
+            # flattened table, and no amount of whitespace normalisation helps --
+            # the words genuinely are not adjacent. The real fix is at ingestion
+            # (emit tables row-wise so a citable span exists); until then,
+            # refusing an answer that carries two independently verified claims
+            # because a third hit that seam is over-strict.
+            #
+            # THE RISK, and it is not hypothetical -- the eval caught it. If the
+            # model wrote "X applies" then "but Y overrides X", keeping only the
+            # first is actively wrong. Guarding on "the lead claim survived" was
+            # not enough: on the flagship question one of three claims validated,
+            # the answer shipped as "you can cancel without a fee", and it
+            # silently lost the clause showing the INR 250 default it overrides.
+            # An answer that hides its own conflict is worse than a refusal, and
+            # `answer-northstar-no-fee` went red for exactly that reason.
+            #
+            # So two conditions, not one: the lead claim must survive (rule 9
+            # makes claim one the outcome) AND a strict majority must survive.
+            # Losing one supporting clause of three is a thinner answer; losing
+            # two of three is a different answer. The drop is recorded as its own
+            # step either way, so the trace never hides it.
+            kept, total = len(outcome.claims), len(claims)
+            partial = (
+                not outcome.ok
+                and attempt >= attempts
+                and outcome.claims
+                and claims
+                and outcome.claims[0].text == claims[0].get("text")
+                and kept * 2 > total
+            )
+            if partial:
+                self._step(
+                    conn,
+                    state,
+                    StepKind.VALIDATE,
+                    "Partial answer: unverifiable claims dropped",
+                    {
+                        "kept": kept,
+                        "of": total,
+                        "dropped": len(outcome.rejected),
+                        "why": (
+                            "the lead claim verified; the rest could not be "
+                            "traced to a contiguous span and were removed"
+                        ),
+                    },
+                )
+                log.info(
+                    "answer_partially_accepted",
+                    kept=kept,
+                    of=total,
+                    dropped=len(outcome.rejected),
+                )
+
+            if outcome.ok or partial:
                 prose, ordered = render_prose(outcome.claims)
                 answer = Answer(
                     claims=outcome.claims, conflicts=conflicts, prose=prose
@@ -726,6 +889,7 @@ class Orchestrator:
         state: _RunState,
         prepared_action: ActionView | None = None,
         action_error: str | None = None,
+        issues: list[Any] | None = None,
     ):
         prompt = synthesis_user_prompt(
             question,
@@ -734,6 +898,7 @@ class Orchestrator:
             decisions=decisions,
             records=records,
             policy=policy,
+            issues=issues,
             prepared_action=prepared_action.summary if prepared_action else None,
             action_error=action_error,
         )
@@ -753,6 +918,90 @@ class Orchestrator:
         budget.record(completion.usage)
         state.add_usage(completion.usage)
         return completion
+
+    # -- cohort tools ------------------------------------------------------
+
+    def _cohort(
+        self, conn: Connection, principal: Principal, call: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Run a named cohort query: a question about a SET, not a record.
+
+        Row-level security does the scoping, which is what makes one template
+        safe for both audiences: staff see the tenant, a customer sees their own
+        account, and neither needs a different query. The account filter here is
+        a NARROWING convenience for "…for Northstar", never the security
+        boundary -- passing someone else's id simply returns nothing.
+        """
+        name = str(call.get("cohort") or "open_tickets")
+        sql = COHORT_TEMPLATES.get(name)
+        if sql is None:
+            return [], {"error": f"unknown cohort {name!r}"}
+
+        account_id = call.get("account_id") or None
+        rows = fetch_all(conn, sql, {"account_id": account_id})
+        log.info("cohort_query", cohort=name, rows=len(rows), account_id=account_id)
+        return rows, {
+            "cohort": name,
+            "rows": len(rows),
+            "account_id": account_id,
+            "accounts": sorted({str(r.get("account_id")) for r in rows}),
+        }
+
+    def _scan_issues(
+        self,
+        conn: Connection,
+        principal: Principal,
+        call: dict[str, Any],
+        now: datetime,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """Run the proactive detectors and return the findings.
+
+        WHY THIS TOOL EXISTS. "Is TKT-501 an SLA breach for Northstar?" and "show
+        me all open P1 tickets" both refused with `low_confidence`, while the
+        dashboard answered both correctly from the same database one tab away.
+        The router could only plan `doc_search`, which found nothing citable --
+        because the answer lives in a table, not a PDF. The logic was written and
+        tested; it simply was not reachable from chat.
+
+        Every `Issue` carries the clause defining the threshold it applied, so a
+        finding grounds an answer exactly the way a policy decision does. That is
+        the whole reason this integrates cleanly rather than needing a validation
+        exemption: a breach without a citation is an opinion, and the detectors
+        already refused to produce one.
+        """
+        from agentcore.analytics import issues as analytics
+
+        wanted = call.get("kinds")
+        subject = (call.get("record_id") or "").strip().upper() or None
+
+        dashboard = analytics.detect(conn, principal, now=now)
+        found = dashboard.issues
+
+        # Narrow AFTER detection rather than before: the detectors resolve policy
+        # per account and cache it, so running the full set and filtering is
+        # cheaper than it looks and keeps one code path shared with the
+        # dashboard. A divergence here would mean chat and dashboard could
+        # disagree about the same ticket, which is worse than a few extra rows.
+        if wanted:
+            keep = {str(k) for k in wanted}
+            found = [i for i in found if i.kind in keep]
+        if subject:
+            found = [i for i in found if (i.subject_id or "").upper() == subject]
+
+        log.info(
+            "issue_scan",
+            scanned=len(dashboard.issues),
+            returned=len(found),
+            subject=subject,
+            kinds=wanted,
+        )
+        return found, {
+            "scanned": len(dashboard.issues),
+            "findings": len(found),
+            "kinds": sorted({i.kind for i in found}),
+            "severities": sorted({i.severity for i in found}),
+            "record_id": subject,
+        }
 
     def _decide(
         self,
@@ -1004,9 +1253,14 @@ class Orchestrator:
         self,
         conn: Connection,
         retrieval: RetrievalResult,
-        decisions: list[PolicyDecision],
+        cited: list[Any],
     ) -> RetrievalResult:
-        """Add each decision's operative clause to the groundable channel.
+        """Add each operative clause to the groundable channel.
+
+        Takes anything carrying a `.citation`: a `PolicyDecision` (one subject) or
+        an `Issue` from the proactive detectors (a cohort). Both produce a clause
+        the deterministic layer actually applied, and both must be citable or the
+        validator rejects the very quote the engine told the model to use.
 
         Fetched through the scoped connection, so RLS still applies: a clause
         from a contract the caller cannot see would come back empty rather than
@@ -1017,7 +1271,9 @@ class Orchestrator:
         relevant thing in the run by definition.
         """
         wanted = {
-            d.citation.chunk_id: d.citation for d in decisions if d.citation is not None
+            c.citation.chunk_id: c.citation
+            for c in cited
+            if getattr(c, "citation", None) is not None
         }
         already = {c.chunk.chunk_id for c in retrieval.groundable}
         missing = [cid for cid in wanted if cid not in already]

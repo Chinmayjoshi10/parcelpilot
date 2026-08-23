@@ -140,6 +140,37 @@ _CREDIT_TERMS = (
 )
 
 
+#: Questions about a POPULATION rather than a record. These need the
+#: deterministic detectors or a cohort query, because the answer lives in a table
+#: and `doc_search` will find nothing citable -- which is exactly how "show me
+#: all open P1 tickets across accounts" and "is TKT-501 an SLA breach?" both came
+#: back as `low_confidence` while the dashboard answered them correctly.
+_COHORT_TERMS = (
+    "all open", "all the open", "across accounts", "every account", "any account",
+    "which tickets", "what tickets", "how many tickets", "list the tickets",
+    "list tickets", "open tickets", "show me all", "outstanding tickets",
+    "unresolved", "queue", "backlog",
+)
+
+#: Wording that asks for a deterministic verdict the detectors already produce.
+_ISSUE_TERMS = (
+    "sla breach", "breaching", "breached", "past due", "overdue", "at risk",
+    "approaching sla", "missed the sla", "missing sla", "exposure", "owed",
+    "recurring", "repeated", "trend", "pattern", "needs attention",
+    "what should i look at", "anything urgent", "what needs",
+)
+
+#: Detector kinds, so a question about one thing does not return all six.
+_ISSUE_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("sla_breach", ("sla", "first response", "first-response", "breach", "response target")),
+    ("credit_eligible", ("credit", "owed", "compensat", "exposure")),
+    ("pickup_overdue", ("pickup", "collection", "overdue", "late")),
+    ("stale_answer", ("wrong answer", "contradict", "stale", "previous answer", "past answer")),
+    ("recurring_issue", ("recurring", "repeated", "cluster", "trend", "pattern", "multiple")),
+    ("unapproved_action", ("awaiting approval", "pending approval", "approval queue")),
+)
+
+
 def plan(question: str) -> dict[str, Any]:
     """Build a tool plan from the question alone.
 
@@ -200,6 +231,39 @@ def plan(question: str) -> dict[str, Any]:
         call["reason"] = text[:200]
         tools.append(call)
         reasons.append(f"action requested: {action_type}")
+
+    # 3b. A question about a POPULATION goes to the table, not the corpus.
+    #
+    # These two shapes are the internal console's headline workflows and both
+    # used to refuse: the planner could only ask for `doc_search`, which found
+    # nothing citable, because "how many open tickets" is not a sentence in any
+    # PDF. Row-level security means the same plan is safe for a customer -- they
+    # get the same query scoped to their own account.
+    wants_cohort = any(t in lowered for t in _COHORT_TERMS)
+    wants_issues = any(t in lowered for t in _ISSUE_TERMS)
+
+    if wants_cohort:
+        tools.append({"tool": "cohort_query", "cohort": "open_tickets"})
+        reasons.append("question about a set of tickets")
+
+    if wants_issues or wants_cohort:
+        # Narrow to the detector kinds the wording actually asks about, so "is
+        # this an SLA breach" does not return the credit exposure too.
+        kinds = [
+            kind for kind, terms in _ISSUE_KINDS if any(t in lowered for t in terms)
+        ]
+        call: dict[str, Any] = {"tool": "issue_scan"}
+        if kinds:
+            call["kinds"] = kinds
+        # A named ticket narrows the scan to that ticket: "is TKT-501 a breach?"
+        # should answer about TKT-501, not list every breach in the tenant.
+        ticket_ids = [i for i in unique_ids if i.startswith("TKT-")]
+        if ticket_ids and not wants_cohort:
+            call["record_id"] = ticket_ids[0]
+        tools.append(call)
+        reasons.append(
+            "deterministic detectors" + (f" ({', '.join(kinds)})" if kinds else "")
+        )
 
     # 4. Policy text, always. Every answer must be citable, and the citation
     #    comes from a document.

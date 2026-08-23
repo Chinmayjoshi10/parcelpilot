@@ -224,6 +224,7 @@ answer. Never describe the action as done, complete or actioned -- a user who \
 believes their ticket was escalated when it is still queued is worse off than \
 one who was never offered the action at all.
 
+
 HOW THE ANSWER SHOULD READ. The rules above decide whether an answer is \
 correct; these decide whether it is usable. A correct answer written in \
 database vocabulary still fails the person reading it.
@@ -286,6 +287,7 @@ def synthesis_user_prompt(
     *,
     decisions: list[PolicyDecision] | None = None,
     records: list[dict[str, Any]] | None = None,
+    issues: list[Any] | None = None,
     policy: ResolvedPolicy | None = None,
     prepared_action: str | None = None,
     action_error: str | None = None,
@@ -374,6 +376,61 @@ def synthesis_user_prompt(
             for conflict in decision.conflicts:
                 block.append(f"override applied: {conflict.explanation}")
             sections.append("\n".join(block))
+
+    # Detector findings. Same standing as a policy decision -- computed by the
+    # same deterministic layer, each carrying the clause that defines the
+    # threshold it applied -- but about a POPULATION rather than one subject, so
+    # they are presented separately. Blurring them would let a tenant-wide count
+    # get attributed to a single order.
+    if issues:
+        sections.append(
+            "\nDETECTED ISSUES (authoritative, computed deterministically across "
+            "the records this caller may see):"
+        )
+        for issue in issues:
+            block = [
+                f"kind: {issue.kind}",
+                f"severity: {issue.severity}",
+                f"subject: {issue.subject_id or '(none)'}"
+                + (f"  account: {issue.account_id}" if issue.account_id else ""),
+                f"finding: {issue.title}",
+                f"detail: {issue.detail}",
+            ]
+            if issue.citation:
+                block.append(f"cite this clause -- chunk_id: {issue.citation.chunk_id}")
+                block.append(f"quote: {issue.citation.quote}")
+            if issue.metrics:
+                block.append(
+                    "computed: "
+                    + str({k: str(v) for k, v in issue.metrics.items()})
+                )
+            sections.append("\n".join(block))
+        # The instruction lives HERE, in the block, and not in the numbered rule
+        # list. That is deliberate and was learned the hard way: adding two rules
+        # to the shared 13-rule prompt degraded a completely different answer --
+        # the flagship cancellation question stopped citing the SOP clause it
+        # overrides, and `answer-northstar-no-fee` went red. Prompt rules are
+        # neither free nor independent; a longer constraint set is a heavier
+        # reasoning load on every call, including the ones that were already
+        # right.
+        #
+        # A block only appears when its tool ran, so guidance attached to a block
+        # costs nothing on the runs that never see it. Same reason the ACTION
+        # PREPARED block carries its own instructions.
+        sections.append(
+            "ANSWERING FROM THE ABOVE IS YOUR TASK. Those findings were computed "
+            "deterministically, exactly like a POLICY DECISION, and each carries "
+            "the clause defining the threshold it applied -- so quote that "
+            "clause. Do NOT set insufficient_evidence because the retrieved "
+            "documents do not restate a finding: the document says what the "
+            "threshold IS and the finding says which records crossed it, and "
+            "together they are the answer. State how many were found and name "
+            "them. The counts and identifiers are authoritative -- do not "
+            "recount, re-derive or estimate them, and never describe a finding "
+            "about one record as though it applied to all of them. A fact that "
+            "came from a database row needs no quote: a row IS the source, and "
+            "quoting it against itself is circular."
+        )
 
     if records:
         sections.append("\nRECORDS (from the operational database, trusted):")
