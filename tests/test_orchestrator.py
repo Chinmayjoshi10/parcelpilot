@@ -340,6 +340,57 @@ class TestModelMisbehaviour:
         # No fabricated content leaks into what a user would see.
         assert "always free" not in response.answer.prose
 
+    async def test_a_table_survives_a_validation_failure(self):
+        """An unverifiable sentence must not suppress verified rows.
+
+        Found by recording the demo, not by a test. "Show me all open P1 tickets
+        across accounts" produced three correct tables and, about one run in
+        three, prose whose citations did not validate -- and the whole answer was
+        discarded, including the records the question actually asked for.
+
+        Those rows come from the rule engine over typed columns the caller is
+        allowed to see, and they carry no citations because a row IS its own
+        source. A citation failure judges the PROSE; it says nothing about
+        arithmetic over columns. So the failure is scoped to what it can speak
+        about, and the tables stand on their own.
+        """
+        route = {
+            "reasoning": "r",
+            "out_of_scope": False,
+            "tools": [
+                {"tool": "cohort_query", "cohort": "open_tickets"},
+                {"tool": "issue_scan"},
+                {"tool": "doc_search", "search_query": "first response target"},
+            ],
+        }
+
+        def synthesise(_prompt, _call):
+            # Fluent, plausible and ungroundable -- on every attempt.
+            return {
+                "claims": [
+                    {
+                        "text": "Every open P1 is within its first-response target.",
+                        "citations": [
+                            {"chunk_id": str(uuid4()), "quote": "no such sentence"}
+                        ],
+                    }
+                ],
+                "insufficient_evidence": False,
+            }
+
+        response = await _run(
+            ScriptedLLM(route, synthesise),
+            "show me all open P1 tickets across accounts",
+            principal=_principal(account_id=None, role=Role.OPERATIONS_ADMIN),
+        )
+
+        assert response.answer is not None
+        assert not response.answer.is_refusal, "the rows answer the question asked"
+        assert response.answer.is_table_only
+        assert response.tables, "tables must survive the prose being dropped"
+        # And the ungroundable sentence reaches nobody.
+        assert "within its first-response target" not in response.answer.prose
+
     async def test_regeneration_is_attempted_once_before_refusing(self):
         route = {
             "reasoning": "r",

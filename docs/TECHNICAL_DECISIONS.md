@@ -973,6 +973,32 @@ across 4/4 runs. The sentence that makes it stick, and that is now in the prompt
 citing only the agreement is not false, but it is **unverifiable** — the reader
 cannot tell what was overridden, or that anything was.
 
+### 5.16 An unverifiable sentence suppressed verified rows
+
+Found by recording the demo, which is to say by running one path thirty times
+instead of once.
+
+"Show me all open P1 tickets across accounts" produced three correct tables and,
+about one run in three, prose whose citations would not validate. The run then
+refused and returned **nothing** -- including the records the question actually
+asked for.
+
+Those rows are computed by the rule engine over typed columns the caller is
+permitted to see, and they carry no citations because a row IS its own source;
+quoting a record against itself is circular, which is the entire premise of
+`orchestrator/tables.py`. A citation failure judges the PROSE. It says nothing
+about arithmetic over columns.
+
+So the failure is now scoped to what it can actually speak about: total
+validation failure degrades to a table-only answer instead of a blanket refusal,
+and the dropped prose is recorded as its own step so the trace never hides it.
+This is the same path the engine already had for "the model produced no claims",
+reached from the other direction -- there it had nothing to say, here what it said
+did not hold up. Either way the rows stand alone.
+
+Six consecutive runs now return all three tables. A 1-in-3 flake is invisible to
+a check that runs once and passes.
+
 ### The defect every gate missed: CRLF
 
 The worst bug in the build, and the most instructive. Symptom, as reported:

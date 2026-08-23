@@ -925,6 +925,53 @@ class Orchestrator:
         # Validation failed every attempt. Refuse rather than show claims the
         # model believed alongside ones it invented.
         reasons = sorted({r.reason for r in (last_outcome.rejected if last_outcome else [])})
+
+        # ...but the rows survive the prose.
+        #
+        # "Show me all open P1 tickets across accounts" produced three correct
+        # tables and, about one run in three, prose whose citations would not
+        # validate. The whole answer was then discarded -- including the records
+        # the question actually asked for, which are computed by the rule engine
+        # from rows the caller is allowed to see and carry no citations because
+        # a row IS its own source (see orchestrator/tables.py).
+        #
+        # So a citation failure is scoped to the thing it judges. It says the
+        # PROSE could not be grounded; it says nothing about arithmetic over
+        # typed columns. Throwing the tables away made an unverifiable sentence
+        # suppress verified data, which is the opposite of the trade this system
+        # is meant to make.
+        #
+        # This is the same shape as the table-only path above, reached from the
+        # other direction: there the model produced no claims, here it produced
+        # claims that did not hold up. Either way the tables stand on their own.
+        if answer_tables:
+            answer = Answer(conflicts=conflicts, prose="", is_table_only=True)
+            self._step(
+                conn,
+                state,
+                StepKind.VALIDATE,
+                "Prose dropped; the table is shown on its own",
+                {"reasons": reasons},
+            )
+            self._finish(
+                conn,
+                state,
+                RunStatus.COMPLETED,
+                answer=answer,
+                index_version_id=retrieval.index_version_id,
+                tables=answer_tables,
+            )
+            log.info("table_survived_validation_failure", tables=len(answer_tables))
+            return EngineResponse(
+                run_id=state.run_id,
+                status=RunStatus.COMPLETED,
+                answer=answer,
+                steps=self._steps(conn, state.run_id),
+                usage=state.usage,
+                index_version=retrieval.index_version_id,
+                tables=answer_tables,
+            )
+
         return self._refuse(
             conn,
             state,
