@@ -205,7 +205,13 @@ export default function OpsConsole({ me, onInspectClause }) {
         <div className="space-y-4">
           <Card
             title="Approval queue"
-            subtitle="Nothing here has happened yet"
+            // The count sits in `right`, so a fixed subtitle contradicted it:
+            // "Nothing here has happened yet" above "1 pending".
+            subtitle={
+              actions.length
+                ? 'Staged and waiting for a human'
+                : 'Nothing here has happened yet'
+            }
             right={
               actions.length ? (
                 <Pill className="border-active/40 bg-active/10 text-active">

@@ -266,6 +266,7 @@ export default function ChatPanel({ me, meta, onInspect }) {
           onChange={setDraft}
           onSend={() => ask()}
           running={running}
+          staff={Boolean(me?.is_staff)}
         />
       </div>
 
@@ -535,7 +536,10 @@ function PendingStep({ steps }) {
  * interface uses, and the old Ctrl+Enter binding was the clearest single signal
  * that this was a form: nobody reaches for a modifier to send a message.
  */
-const Composer = forwardRef(function Composer({ value, onChange, onSend, running }, ref) {
+const Composer = forwardRef(function Composer(
+  { value, onChange, onSend, running, staff },
+  ref,
+) {
   const area = useRef(null)
   useImperativeHandle(ref, () => ({ focus: () => area.current?.focus() }), [])
 
@@ -562,7 +566,15 @@ const Composer = forwardRef(function Composer({ value, onChange, onSend, running
               onSend()
             }
           }}
-          placeholder={running ? 'Working…' : 'Ask anything about your account…'}
+          // Staff read tenant-wide, so "your account" was the wrong scope for
+          // exactly the reader who can ask across all of them.
+          placeholder={
+            running
+              ? 'Working…'
+              : staff
+                ? 'Ask across every account…'
+                : 'Ask anything about your account…'
+          }
           className="max-h-40 flex-1 resize-none border-0 bg-transparent p-0 text-[13.5px] leading-relaxed text-ink placeholder-faint focus:outline-none focus:ring-0"
         />
         <button

@@ -37,6 +37,10 @@ export default function App() {
   const [meta, setMeta] = useState(null)
   const [tab, setTab] = useState('ask')
   const [booting, setBooting] = useState(true)
+  // The design notes are reachable BEFORE sign-in. Whoever opens the hosted
+  // URL cold lands on an identity picker, which explains nothing about why
+  // the system is built this way — and that reasoning is the product.
+  const [landingDesign, setLandingDesign] = useState(false)
   const [inspecting, setInspecting] = useState(null)
 
   useEffect(() => {
@@ -72,7 +76,28 @@ export default function App() {
   }
 
   if (!me) {
-    return <LoginScreen meta={meta} onSignedIn={setMe} />
+    if (landingDesign) {
+      return (
+        <div className="min-h-full">
+          <div className="mx-auto max-w-7xl px-4 pt-6">
+            <button
+              onClick={() => setLandingDesign(false)}
+              className="text-[12px] font-medium text-muted transition hover:text-ink"
+            >
+              ← Back to sign-in
+            </button>
+          </div>
+          <DesignNotes />
+        </div>
+      )
+    }
+    return (
+      <LoginScreen
+        meta={meta}
+        onSignedIn={setMe}
+        onShowDesign={() => setLandingDesign(true)}
+      />
+    )
   }
 
   const visibleTabs = Object.entries(TABS).filter(
@@ -97,6 +122,9 @@ export default function App() {
               <button
                 key={key}
                 onClick={() => setTab(key)}
+                // Styling alone leaves a screen reader with four identical
+                // buttons and no way to know which view is open.
+                aria-current={tab === key ? 'page' : undefined}
                 className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition ${
                   tab === key
                     ? 'bg-raised text-ink'

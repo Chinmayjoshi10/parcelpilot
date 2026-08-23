@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import * as api from '../lib/api'
 import { ErrorNote, Pill, Spinner } from './primitives'
 
-export default function LoginScreen({ onSignedIn, meta }) {
+export default function LoginScreen({ onSignedIn, meta, onShowDesign }) {
   const [logins, setLogins] = useState([])
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
@@ -60,6 +60,14 @@ export default function LoginScreen({ onSignedIn, meta }) {
             data. Every claim is validated against the document it quotes, and
             tenancy is enforced in the database rather than in application code.
           </p>
+          {onShowDesign && (
+            <button
+              onClick={onShowDesign}
+              className="mt-4 rounded-lg border border-edge px-3 py-1.5 text-[12px] font-medium text-ink transition hover:border-verified/40 hover:text-verified"
+            >
+              How it works — architecture, agent design, and one real defect →
+            </button>
+          )}
         </header>
 
         {error && (
