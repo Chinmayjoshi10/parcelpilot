@@ -246,10 +246,25 @@ class Refusal(Frozen):
 
 
 class Answer(Frozen):
-    """Terminal result of a run: either grounded claims or an explicit refusal.
+    """Terminal result of a run: grounded claims, records, or an explicit refusal.
 
-    Never both, never neither. A half-answered high-stakes question is the
-    failure mode this whole architecture exists to prevent.
+    Never a refusal alongside content, and never nothing at all. A half-answered
+    high-stakes question is the failure mode this whole architecture exists to
+    prevent.
+
+    `is_table_only` is the third outcome, and it was added under pressure from a
+    real answer that had nowhere to go. Asked "show me all open P1 tickets", the
+    system produced a correct three-row table — ticket, account, contracted
+    target, elapsed, over by — and zero claims, because there is nothing in a
+    document to quote for "TKT-501 is 15 minutes over". The old invariant made
+    that a REFUSAL, so a complete answer was presented as a failure.
+
+    The reason claims were mandatory is that *prose* without a citation is how a
+    fluently wrong answer ships. A server-computed table is not prose: it is the
+    same deterministic output as a policy verdict, and it carries no natural-
+    language assertion that could be subtly wrong. So it is a legitimate third
+    kind of content, and the invariant is now "exactly one outcome, and at least
+    one" rather than "claims or refusal".
     """
 
     claims: list[Claim] = Field(default_factory=list)
@@ -257,11 +272,20 @@ class Answer(Frozen):
     conflicts: list[ConflictNote] = Field(default_factory=list)
     #: Rendered prose, assembled from validated claims for display only.
     prose: str = ""
+    #: True when the run produced records but no citable sentence about them.
+    #: The records themselves travel on `EngineResponse.tables`; this flag is what
+    #: lets the answer be an answer rather than a refusal.
+    is_table_only: bool = False
 
     @model_validator(mode="after")
     def _exactly_one_outcome(self) -> Answer:
-        if bool(self.claims) == bool(self.refusal):
-            raise ValueError("an answer must carry either claims or a refusal, never both")
+        has_content = bool(self.claims) or self.is_table_only
+        if has_content and self.refusal is not None:
+            raise ValueError("an answer carries content or a refusal, never both")
+        if not has_content and self.refusal is None:
+            raise ValueError("an answer must carry content or a refusal")
+        if self.is_table_only and self.claims:
+            raise ValueError("is_table_only means there were no claims")
         return self
 
     @property
@@ -457,6 +481,29 @@ class Query(Frozen):
     conversation_id: UUID | None = None
 
 
+class DataTable(Frozen):
+    """Records the answer is about, carried beside it rather than narrated.
+
+    Rows are pre-formatted strings, parallel to `columns`. Formatting happens
+    server-side because the units are known there: `elapsed_minutes: 30.0`
+    becomes "30 min" once, rather than every client re-deciding whether that
+    field is minutes or hours.
+
+    This exists because the citation contract does not fit a question about
+    records. Every claim needs a verbatim document quote and a database row has
+    none — so, asked to list tickets, the model filled the answer with the only
+    material it could cite (the policy defining a P1) and never named a ticket.
+    A row needs no source because it IS the source; quoting a record against
+    itself is circular.
+    """
+
+    title: str
+    columns: list[str]
+    rows: list[list[str]]
+    #: Where the figures came from, so a reader knows they are not model output.
+    note: str | None = None
+
+
 class EngineResponse(Frozen):
     run_id: UUID
     status: RunStatus
@@ -485,6 +532,8 @@ class EngineResponse(Frozen):
     #: that must cite everything is the wrong shape. So it travels beside the
     #: answer, exactly like a refusal message does.
     action_notice: str | None = None
+    #: Records the answer is about. Server-authored, never a model claim.
+    tables: list[DataTable] = Field(default_factory=list)
 
 
 class UntrustedContent(Frozen):

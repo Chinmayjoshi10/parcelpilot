@@ -228,3 +228,84 @@ class TestToolsAreDeclared:
             assert planned <= declared, (
                 f"{question!r} planned undeclared {sorted(planned - declared)}"
             )
+
+
+class TestResultTables:
+    """The table's column keys must match what the detectors actually emit.
+
+    My first pass invented `hours_past_window` and `carrier_fault`. The detector
+    emits `overdue_hours` and `fault_attributed`, so every cell in that table
+    rendered as an em-dash — which reads as missing data when the data was right
+    there. Guessing at a neighbouring module's field names is exactly the kind of
+    mistake a test catches for free.
+    """
+
+    def test_every_spec_renders_real_values_for_its_kind(self):
+        from agentcore.analytics.issues import Issue
+        from agentcore.orchestrator import tables
+
+        # One synthetic finding per spec'd kind, carrying the metric keys the
+        # detectors emit. Sourced from `agentcore/analytics/issues.py`.
+        samples = {
+            "sla_breach": {
+                "elapsed_minutes": 30.0, "target_minutes": 15.0,
+                "over_by_minutes": 15.0, "target_from": "ACCT-001",
+                "assigned_to": "Rohit",
+            },
+            "credit_eligible": {
+                "amount": "300", "currency": "INR", "delay_hours": 4.5,
+                "threshold_hours": 4, "threshold_from": "ACCT-002",
+                "carrier": "RoadRunner",
+            },
+            "pickup_overdue": {
+                "overdue_hours": 4.5, "carrier": "RoadRunner",
+                "fault_attributed": True,
+            },
+            "stale_answer": {},
+        }
+
+        for kind, metrics in samples.items():
+            issue = Issue(
+                kind=kind, severity="P1", title="t", detail="a detail",
+                account_id="ACCT-001", subject_id="TKT-501", metrics=metrics,
+            )
+            built = tables.from_findings([issue], [])
+            assert built, f"{kind} produced no table"
+            table = built[0]
+            assert len(table.rows) == 1
+            row = table.rows[0]
+            assert len(row) == len(table.columns), (
+                f"{kind}: {len(row)} cells for {len(table.columns)} columns"
+            )
+            # The failure mode being guarded: a row of em-dashes.
+            assert row.count("—") <= 1, f"{kind} rendered mostly em-dashes: {row}"
+
+    def test_account_name_is_joined_in_when_available(self):
+        from agentcore.analytics.issues import Issue
+        from agentcore.orchestrator import tables
+
+        issue = Issue(
+            kind="sla_breach", severity="P1", title="t", detail="d",
+            account_id="ACCT-004", subject_id="TKT-505",
+            metrics={"target_minutes": 30, "elapsed_minutes": 150,
+                     "over_by_minutes": 120, "target_from": "default"},
+        )
+        built = tables.from_findings(
+            [issue], [{"account_id": "ACCT-004", "account_name": "Axis Labs"}]
+        )
+        assert "Axis Labs (ACCT-004)" in built[0].rows[0]
+
+    def test_a_contract_sourced_threshold_is_marked(self):
+        """"15 min (contract)" is the interesting cell: it says this customer's
+        agreement set the target, not the plan default."""
+        from agentcore.analytics.issues import Issue
+        from agentcore.orchestrator import tables
+
+        issue = Issue(
+            kind="sla_breach", severity="P1", title="t", detail="d",
+            account_id="ACCT-001", subject_id="TKT-501",
+            metrics={"target_minutes": 15, "elapsed_minutes": 30,
+                     "over_by_minutes": 15, "target_from": "ACCT-001"},
+        )
+        row = tables.from_findings([issue], [])[0].rows[0]
+        assert any("(contract)" in cell for cell in row)

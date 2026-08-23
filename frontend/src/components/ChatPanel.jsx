@@ -369,6 +369,16 @@ function AssistantTurn({ turn, me, onInspect, onError, onActionSettled }) {
 
       {parsed && <AnswerView answer={parsed} runId={turn.runId} onInspect={onInspect} />}
 
+      {/* The records the answer is about. Server-authored and uncited on
+          purpose: a row IS its source, so quoting it against itself would be
+          circular. Before this existed, "show me all open P1 tickets" answered
+          with the DEFINITION of a P1 — every sentence correctly cited, and not
+          one ticket named — because policy text was the only material the model
+          could cite. */}
+      {(turn.run?.tables ?? []).map((table, i) => (
+        <ResultTable key={i} table={table} />
+      ))}
+
       {/* Something the user asked to be DONE was not done. Rendered as a system
           notice rather than inside the answer, because it is a fact about this
           system and not a claim about the world — there is no clause in the
@@ -596,6 +606,10 @@ function StepDetail({ detail, kind }) {
 }
 
 function AnswerView({ answer, runId, onInspect }) {
+  // The answer IS the table below. Rendering an empty "Answer" card above it
+  // would read as something having gone wrong.
+  if (answer.is_table_only) return null
+
   if (answer.refusal) {
     return (
       <Card title="Declined" subtitle="An honest refusal, not a failure">
@@ -923,6 +937,77 @@ function HandoffButton({ runId }) {
       {error && (
         <p className="mt-1.5 text-[11px] text-breach/90">
           Could not hand this over: {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A result table: the records an answer is about.
+ *
+ * Deliberately styled as data rather than as prose, and carrying no citation
+ * chips. That absence is meaningful — everything the assistant *says* is cited,
+ * and everything here came straight from the database, so a reader can tell the
+ * two apart at a glance.
+ */
+function ResultTable({ table }) {
+  if (!table?.rows?.length) return null
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-card">
+      <div className="flex items-baseline justify-between gap-3 border-b border-edge px-4 py-3">
+        <h3 className="text-[13px] font-semibold text-ink">{table.title}</h3>
+        <span className="tabular shrink-0 text-[11px] text-faint">
+          {table.rows.length} {table.rows.length === 1 ? 'row' : 'rows'}
+        </span>
+      </div>
+
+      {/* Its own scroll container, so a wide table never makes the page scroll
+          sideways. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-[13px]">
+          <thead>
+            <tr>
+              {table.columns.map((col) => (
+                <th
+                  key={col}
+                  className="whitespace-nowrap border-b border-edge px-4 py-2 text-left text-[10px]
+                             font-semibold uppercase tracking-widest text-faint"
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, r) => (
+              <tr key={r} className="hover:bg-raised">
+                {row.map((cell, cIdx) => (
+                  <td
+                    key={cIdx}
+                    className={`border-b border-edge/60 px-4 py-2 align-top ${
+                      // First column is the identifier: monospace so a column of
+                      // ids reads as a column. Later ones hold figures.
+                      cIdx === 0
+                        ? 'tabular font-medium text-ink whitespace-nowrap'
+                        : /^[+\d]/.test(String(cell))
+                          ? 'tabular text-ink/90 whitespace-nowrap'
+                          : 'text-muted'
+                    }`}
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {table.note && (
+        <p className="border-t border-edge px-4 py-2.5 text-[11px] leading-relaxed text-faint">
+          {table.note}
         </p>
       )}
     </div>

@@ -354,6 +354,7 @@ async def get_run(run_id: UUID, conn: ReadOnlyConn, who: CurrentPrincipal) -> di
         """
         SELECT run_id, status, query, answer_json, refusal_reason, error,
                prompt_tokens, completion_tokens, index_version_id, action_notice,
+               tables_json AS tables,
                started_at, finished_at, account_id, role
         FROM runs WHERE run_id = %s
         """,
@@ -361,6 +362,13 @@ async def get_run(run_id: UUID, conn: ReadOnlyConn, who: CurrentPrincipal) -> di
     )
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such run")
+
+    # Aliased to `tables` on the way out: `tables_json` is how the column is
+    # stored, not what the client should have to know. The frontend read
+    # `run.tables` while this returned `run.tables_json`, so every table
+    # silently rendered as nothing -- the same shape of defect as the SSE
+    # framing bug, a key-name disagreement between two components that each
+    # tested fine alone.
 
     steps = fetch_all(
         conn,

@@ -288,6 +288,7 @@ def synthesis_user_prompt(
     decisions: list[PolicyDecision] | None = None,
     records: list[dict[str, Any]] | None = None,
     issues: list[Any] | None = None,
+    tables: list[Any] | None = None,
     policy: ResolvedPolicy | None = None,
     prepared_action: str | None = None,
     action_error: str | None = None,

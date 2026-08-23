@@ -39,6 +39,7 @@ from agentcore.errors import BudgetExhausted, ParcelPilotError, ProviderError
 from agentcore.llm.base import LLM, Embedder, TokenBudget, estimate_tokens
 from agentcore.logging import bind_run, get_logger
 from agentcore.orchestrator import router as fast_router
+from agentcore.orchestrator import tables as result_tables
 from agentcore.orchestrator.prompts import (
     ROUTING_SCHEMA,
     ROUTING_SYSTEM,
@@ -460,6 +461,7 @@ class Orchestrator:
         #: one subject, and blurring them would let the model attribute a
         #: tenant-wide count to a single order.
         issues: list[Any] = []
+        cohort_rows: list[dict[str, Any]] = []
         policy: ResolvedPolicy | None = None
         prepared_action: ActionView | None = None
         action_error: str | None = None
@@ -522,6 +524,10 @@ class Orchestrator:
                 # A question about a SET of records rather than one named record.
                 rows, detail = self._cohort(conn, principal, call)
                 records.extend(rows)
+                # Held separately as well: these rows carry account NAMES, which
+                # findings do not, and "Axis Labs (ACCT-004)" reads better in a
+                # table than the id alone.
+                cohort_rows.extend(rows)
 
             elif tool == "issue_scan":
                 # The deterministic detectors the proactive dashboard already
@@ -613,6 +619,17 @@ class Orchestrator:
         # engine told the model to quote, and every policy answer would refuse.
         # Admitting it here keeps one validation path rather than exempting
         # policy citations from checking.
+        # The records the answer is about, formatted server-side and carried
+        # beside it. See `agentcore/orchestrator/tables.py` for why this is not
+        # the model's job: a row is its own source, so it needs no citation, and
+        # asking a citation-bound component to narrate one made it answer with
+        # policy definitions instead of naming a single ticket.
+        answer_tables = result_tables.from_findings(issues, cohort_rows)
+        if not answer_tables and cohort_rows:
+            listing = result_tables.from_cohort(cohort_rows)
+            if listing is not None:
+                answer_tables = [listing]
+
         # Detector findings carry clauses too, for the same reason and with the
         # same consequence if they are left out.
         retrieval = self._admit_decision_clauses(
@@ -684,6 +701,7 @@ class Orchestrator:
                 state,
                 prepared_action=prepared_action,
                 action_error=action_error,
+                tables=answer_tables,
             )
             payload = completion.data or {}
             claims, insufficient = parse_answer(payload)
@@ -734,6 +752,36 @@ class Orchestrator:
                         # because the same prompt produced a good answer moments
                         # earlier.
                         continue
+                # A table with no claims is an ANSWER, not a refusal.
+                #
+                # The run produced a correct three-row table -- ticket, account,
+                # contracted target, elapsed, over by -- and no claims, because
+                # there is no document sentence to quote for "TKT-501 is 15
+                # minutes over its target". Treating that as a refusal presented
+                # a complete answer as a failure.
+                if answer_tables:
+                    answer = Answer(
+                        conflicts=conflicts, prose="", is_table_only=True
+                    )
+                    self._finish(
+                        conn,
+                        state,
+                        RunStatus.COMPLETED,
+                        answer=answer,
+                        index_version_id=retrieval.index_version_id,
+                        tables=answer_tables,
+                    )
+                    log.info("answered_with_table_only", tables=len(answer_tables))
+                    return EngineResponse(
+                        run_id=state.run_id,
+                        status=RunStatus.COMPLETED,
+                        answer=answer,
+                        steps=self._steps(conn, state.run_id),
+                        usage=state.usage,
+                        index_version=retrieval.index_version_id,
+                        tables=answer_tables,
+                    )
+
                 return self._refuse(
                     conn,
                     state,
@@ -848,6 +896,7 @@ class Orchestrator:
                     answer=answer,
                     index_version_id=retrieval.index_version_id,
                     action_notice=_action_notice(action_error),
+                    tables=answer_tables,
                 )
                 return EngineResponse(
                     run_id=state.run_id,
@@ -860,6 +909,7 @@ class Orchestrator:
                     usage=state.usage,
                     index_version=retrieval.index_version_id,
                     action_notice=_action_notice(action_error),
+                    tables=answer_tables,
                 )
 
             if attempt < attempts:
@@ -921,6 +971,7 @@ class Orchestrator:
         prepared_action: ActionView | None = None,
         action_error: str | None = None,
         issues: list[Any] | None = None,
+        tables: list[Any] | None = None,
     ):
         prompt = synthesis_user_prompt(
             question,
@@ -1518,6 +1569,7 @@ class Orchestrator:
         error: str | None = None,
         index_version_id: int | None = None,
         action_notice: str | None = None,
+        tables: list[Any] | None = None,
     ) -> None:
         # index_version_id is recorded because reproducibility depends on it:
         # without it, "why did it answer that in August" cannot be replayed once
@@ -1526,6 +1578,7 @@ class Orchestrator:
             """
             UPDATE runs SET status = %s, finished_at = now(), answer_json = %s,
                    refusal_reason = %s, error = %s, action_notice = %s,
+                   tables_json = %s,
                    prompt_tokens = %s, completion_tokens = %s,
                    index_version_id = coalesce(%s, index_version_id)
             WHERE run_id = %s
@@ -1536,6 +1589,13 @@ class Orchestrator:
                 answer.refusal.reason.value if answer and answer.refusal else None,
                 error,
                 action_notice,
+                # Persisted rather than recomputed on read, so a replayed run
+                # shows the rows as they WERE. Recomputing would show today's
+                # data under yesterday's answer, which is the opposite of an
+                # auditable log.
+                json.dumps([t.model_dump(mode="json") for t in tables])
+                if tables
+                else None,
                 state.usage.prompt_tokens,
                 state.usage.completion_tokens,
                 index_version_id,
@@ -1589,6 +1649,7 @@ class Orchestrator:
         message: str,
         *,
         detail: dict[str, Any] | None = None,
+        tables: list[Any] | None = None,
     ) -> EngineResponse:
         # Any refusal withdraws a proposal the run could not justify. Done here
         # rather than at each call site so a new refusal path cannot omit it.
@@ -1606,7 +1667,9 @@ class Orchestrator:
             reason.value,
             {"message": message, **(detail or {})},
         )
-        self._finish(conn, state, RunStatus.COMPLETED, answer=answer)
+        self._finish(
+            conn, state, RunStatus.COMPLETED, answer=answer, tables=tables
+        )
         log.info("run_refused", reason=reason.value)
         return EngineResponse(
             run_id=state.run_id,
@@ -1614,6 +1677,7 @@ class Orchestrator:
             answer=answer,
             steps=self._steps(conn, state.run_id),
             usage=state.usage,
+            tables=tables or [],
         )
 
 
@@ -1649,6 +1713,7 @@ def summarise(response: EngineResponse) -> dict[str, Any]:
         ),
         "awaiting_confirmation": response.pending_action_id is not None,
         "action_notice": response.action_notice,
+        "tables": [t.model_dump(mode="json") for t in response.tables],
         "refused": bool(answer and answer.is_refusal),
         "refusal_reason": (
             answer.refusal.reason.value if answer and answer.refusal else None
