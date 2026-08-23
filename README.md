@@ -48,12 +48,27 @@ because an audit found they were not.
 | 3 | Tool 1 — document search | `doc_search` | Hybrid FTS + dense, RRF fusion, eligibility gate |
 | 3 | Tool 2 — structured lookup / calculation | `data_query`, `policy_decide` | Deterministic rules over typed columns; the model never does the arithmetic |
 | 3 | Tool 3 — state-changing action | `prepare_action`, `agentcore/tools/actions.py` | Escalate a ticket, issue a credit, cancel an order, create a follow-up |
+| 3+ | Two more, for a different question *shape* | `cohort_query`, `issue_scan` | "Is TKT-501 an SLA breach for Northstar?" answers from the same deterministic detectors the dashboard runs |
 | 4 | Confirmation before execution | `actions.prepare` / `actions.confirm` | The client receives only an `action_id`; a second confirm returns 409, not a duplicate |
 | 5 | Multi-step requests | the agent loop | ORD-1001 runs order lookup → account → agreement → SOP → fee calculation → answer, visible in the live trace |
-| 6 | Chat interface showing which tool is used | `frontend/` | The reasoning stream is the durable run log being tailed, not a spinner |
+| 6 | Chat interface showing which tool is used | `frontend/` | The reasoning stream is the durable run log being tailed, not a spinner. Collapses to `✓ 5 steps · 7.8s` when the answer lands |
 | 7 | Demo video | `docs/DEMO_SCRIPT.md` | Script with timings |
 | **P1** | Proactive issue detection | `agentcore/analytics/issues.py` | Six deterministic detectors, each finding cited: SLA breach, owed credit, overdue pickup, stale historical answer, recurring clusters |
 | **P2** | Trust and reliability | the whole design | Eligibility gate, verbatim citation validation, deterministic policy engine, conflict surfacing, `policy validate` drift check in CI |
+
+### Verified end to end
+
+Every row above was exercised against live PostgreSQL 18.1 and live Vertex AI,
+not asserted. The current gate:
+
+```
+190 Python tests · 16 frontend tests · 22/22 golden eval
+schema at revision 8, no drift · 22 policy parameters re-located in the corpus
+ruff clean · production build clean
+```
+
+Answers land in **1.5–5s** end to end. A cross-account refusal lands in **47ms**
+with no model call at all, because the guard runs before the planner.
 
 ### The two example requests
 
@@ -94,13 +109,36 @@ Copy-Item .env.example .env      # then fill in (see below)
 .\.venv\Scripts\python.exe -m agentcore.cli policy validate
 
 # 5. Verify
-.\.venv\Scripts\python.exe -m pytest tests/ -q
-.\.venv\Scripts\python.exe -m agentcore.cli eval run --offline
+.\.venv\Scripts\python.exe -m pytest tests/ -q                 # 190, real Postgres
+.\.venv\Scripts\python.exe -m agentcore.cli eval run --offline  # 16, no model needed
 
-# 6. Run
+# 6. Run — two processes
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
-cd frontend; npm install; npm run dev      # http://localhost:5173
+cd frontend; npm install; npm run dev
 ```
+
+Then open **http://localhost:5173**.
+
+> Use `localhost`, not `127.0.0.1`. Vite binds the hostname, which on Windows
+> resolves to IPv6 `::1`, so `http://127.0.0.1:5173` will not answer even though
+> the server is up. The API itself is on `127.0.0.1:8000`, but you never need to
+> hit it directly — Vite proxies `/api` through, which is also what keeps the
+> bearer token on a same-origin request.
+
+**Prerequisites:** Python 3.11+, Node 20+, and a running PostgreSQL 16+ (built
+and verified against 18.1). `db bootstrap` is the only step that needs a
+superuser connection; nothing at request time does.
+
+### If setup goes wrong
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `db bootstrap` refuses to run | The target database is not UTF-8 | Intentional. A WIN1252 database physically cannot store `₹` or an em-dash, and the corpus is full of both. Let bootstrap create the database rather than pointing it at an existing one |
+| `llm probe` exits non-zero | No credential, or more than one set | Precedence is `GOOGLE_APPLICATION_CREDENTIALS` → `VERTEX_ACCESS_TOKEN` → `LLM_API_KEY`, **first set wins** — blank the others |
+| Answers refuse with `no_eligible_source` | No index | Run `ingest run`. Readiness means "an index is pinned and loadable" |
+| `policy validate` fails | A quote no longer appears in the corpus it cites | Working as intended: a rule has drifted from its source. Fix the pack or the document, not the check |
+| `db status` exits non-zero | An applied migration was edited | Checksums make drift fatal. Add a new migration; never edit an applied one |
+| Frontend loads, answers never arrive | Backend not running, or reached on the wrong host | Check `curl http://localhost:5173/api/meta` — that is the path the browser actually uses |
 
 ### Environment
 
@@ -184,7 +222,7 @@ rather than "wait while I parse PDFs".
 ## Testing
 
 ```powershell
-pytest tests/ -q                                    # 188 tests, real Postgres
+pytest tests/ -q                                    # 190 tests, real Postgres
 python -m agentcore.cli eval run --offline          # CI gate: deterministic
 python -m agentcore.cli eval run                    # adds live-model cases
 python -m agentcore.cli db status                   # non-zero on schema drift
@@ -218,6 +256,44 @@ incident, not a percentage point.
   zero retraining latency when a policy changes.
 
 ## Known limitations
+
+Listed because an evaluator will find them, and finding them listed is better
+than finding them.
+
+- **A purely data-shaped question still refuses.** "List the open tickets" or
+  "which accounts have credit exposure" return `low_confidence`. Every claim
+  needs a verbatim document quote and a table row has none, so the model
+  correctly declines to assert it. The fix is structural, not a prompt tweak:
+  render rows as a server-authored table beside the answer, the way
+  `runs.action_notice` already carries a fact the model may not claim, and let a
+  zero-claim answer stand when findings exist. Questions that combine data with
+  a threshold — "is TKT-501 an SLA breach?" — do work, because the threshold
+  clause is quotable.
+- **Verbatim validation is incompatible with a flattened table.** The SLA table
+  is extracted column-major (`Plan / P1 / P2 / P3 / Enterprise / 30 minutes...`),
+  so the model reconstructs a row-and-column intersection correctly and then
+  cannot cite it — those tokens are not adjacent in the text. No amount of
+  whitespace normalisation helps. The fix belongs at ingestion: emit tables
+  row-wise so a citable span exists.
+- **No conversation memory.** Threading is durable in the database but nothing
+  from earlier turns reaches the agent, so "what about that one?" starts over.
+  Deliberately absent rather than half-built: the router decides both tool
+  selection *and* action staging, so a pronoun resolving from history would put
+  an unverified record id into the action gate. The right shape carries entities
+  as *candidates* that still have to survive the scoped lookup.
+- **`window.alert()` on the operations dashboard** when a cited clause is
+  clicked — a raw OS dialog, three components away from a working citation
+  inspector.
+- **A customer receives 200 from `/api/dashboard`** and 403 from
+  `/dashboard/accounts`. Nothing leaks — RLS scopes the response to their own
+  account — but a customer can read internally-worded findings about themselves
+  by calling the endpoint directly.
+- Replay opens a past run into whatever thread is on screen and does not adopt
+  its `conversation_id`.
+- The customer surface still shows an engineer's panel (provider, models, index
+  version, token count) and raw refusal reason codes.
+
+### Infrastructure, honestly
 
 - Dense retrieval is a sequential scan; fine to a few thousand chunks, needs
   pgvector beyond ~10k.

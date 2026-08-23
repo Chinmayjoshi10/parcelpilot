@@ -172,3 +172,59 @@ class TestImperativeOpeners:
             "What is the escalation policy for P2?",
         ):
             assert "prepare_action" not in _tools(phrasing), phrasing
+
+
+class TestToolsAreDeclared:
+    """Every tool the engine dispatches must be declared in config.yaml.
+
+    CLAUDE.md has a working agreement: a new tool declares whether it is
+    tenant-scoped and whether it requires confirmation, in config.yaml. I broke
+    it — `cohort_query` and `issue_scan` shipped dispatching in the engine and
+    absent from the config, so the reviewed description of the system's tool
+    surface silently disagreed with the system.
+
+    That matters beyond tidiness: `config.yaml` is the version-controlled answer
+    to "what could this agent do in August", and a tool missing from it is a
+    capability with no reviewed declaration. An agreement enforced only by
+    remembering is the same shape as the tenancy filter this whole architecture
+    exists to replace — so it gets a test.
+    """
+
+    def test_every_dispatched_tool_is_declared(self):
+        import re
+        from pathlib import Path
+
+        from agentcore.settings import load_config
+
+        source = Path("agentcore/orchestrator/engine.py").read_text(encoding="utf-8")
+        # Both dispatch shapes: `tool == "x"` and `tool in ("x", "y")`.
+        dispatched = set(re.findall(r'tool == "([a-z_]+)"', source))
+        for group in re.findall(r'tool in \(((?:"[a-z_]+",?\s*)+)\)', source):
+            dispatched.update(re.findall(r'"([a-z_]+)"', group))
+
+        declared = {t.name for t in load_config().tools}
+        undeclared = dispatched - declared
+
+        assert not undeclared, (
+            f"dispatched but not declared in config.yaml: {sorted(undeclared)}"
+        )
+
+    def test_the_router_only_plans_declared_tools(self):
+        """A plan naming a tool the engine cannot dispatch is a silent no-op."""
+        from agentcore.settings import load_config
+
+        declared = {t.name for t in load_config().tools}
+        questions = [
+            "Can I cancel ORD-1001 without a cancellation fee?",
+            "Show me all open P1 tickets across accounts.",
+            "Is TKT-501 an SLA breach?",
+            "Please escalate TKT-501",
+            "Issue a service credit for ORD-2002",
+            "What is the bulk upload row limit?",
+            "Which accounts have credit exposure?",
+        ]
+        for question in questions:
+            planned = {t["tool"] for t in router.plan(question)["tools"]}
+            assert planned <= declared, (
+                f"{question!r} planned undeclared {sorted(planned - declared)}"
+            )

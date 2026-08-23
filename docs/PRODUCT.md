@@ -113,12 +113,32 @@ nothing about whether the product is *right*.
 - **Fine-tuning.** Retrieval plus deterministic tools gives higher precision and
   zero retraining latency when a policy changes. A fine-tuned model would have to
   be retrained every time the SOP does.
-- **Conversation memory.** Threaded through the schema, not implemented. Each
-  question is answered independently, which is the safer default for a system
-  whose answers are cited: no ambiguity about which turn a citation belongs to.
+- **Conversation memory.** Threaded through the schema — every turn shares one
+  `conversation_id` and the runs are linked in the database — but nothing from an
+  earlier turn reaches the agent, so a pronoun follow-up starts over.
+
+  This is the one omission worth explaining rather than listing, because the
+  reason is specific. The router decides both which tools run *and* whether a
+  state change gets staged. Carry entities across turns naively and "cancel it"
+  resolves `it` from conversation history into the action gate — a record the
+  current turn never looked up, never verified through the scoped connection, and
+  that the invisible-record guard therefore never checks. The right design
+  carries an entity as a *candidate* that still has to survive the scoped lookup
+  like any other id. That is an afternoon of work and an afternoon of testing,
+  and shipping the first half alone would have put an untested path into a
+  money-moving tool to look more complete.
 - **A business-hours calendar.** One agreement quotes business hours; we
   approximate wall-clock and **label it** everywhere it surfaces. Showing an
   imperfect figure honestly beats showing a wrong one confidently.
+- **Answers to purely data-shaped questions.** "List the open tickets" returns
+  a refusal, because every claim requires a verbatim document quote and a table
+  row has none. Questions that pair data with a *threshold* do work — "is TKT-501
+  an SLA breach?" answers, because the threshold clause is quotable. Closing the
+  gap means rendering rows as a server-authored table beside the answer, the way
+  `runs.action_notice` already carries a fact the model is not allowed to claim.
+  Left out because it is a change to the answer contract, not a prompt tweak, and
+  guessing at that contract under time pressure is how the citation guarantee
+  gets quietly weakened.
 - **Hosting.** Runs locally against PostgreSQL 18; a `Dockerfile` and CI workflow
   are included but no deployment is provisioned.
 

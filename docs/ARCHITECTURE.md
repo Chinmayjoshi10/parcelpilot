@@ -31,7 +31,10 @@ but a fee, a threshold or an eligibility verdict comes from
 `agentcore/policy/rules.py`. The router is explicitly instructed to prefer the
 policy tool and never to do arithmetic itself.
 
-### Five tools
+### Seven tools
+
+The assessment asks for three distinct tools. The first five are the core; the
+last two exist because the internal console asks a different *shape* of question.
 
 | Tool | Kind | Notes |
 |---|---|---|
@@ -40,6 +43,33 @@ policy tool and never to do arithmetic itself.
 | `policy_decide` | calculation | Deterministic rules returning a verdict **and its operative clause** |
 | `ticket_history` | retrieval | Past resolutions, permanently `context_only` |
 | `prepare_action` | **state change** | Writes a ledger row; executes nothing. A human confirms |
+| `cohort_query` | structured lookup | Named templates for a question about a **set** rather than a record |
+| `issue_scan` | calculation | The proactive detectors, reachable from chat; each finding carries its threshold clause |
+
+Every tool the engine dispatches is declared in `config.yaml` with whether it is
+tenant-scoped and whether it requires confirmation — and
+`tests/test_fast_router.py::TestToolsAreDeclared` enforces that, because the two
+cohort tools originally shipped dispatching in code and absent from the config.
+`config.yaml` is the version-controlled answer to "what could this agent do in
+August", so a capability with no declaration there is a capability with no review.
+
+**Why the last two were needed.** Both of the internal console's headline
+questions — *"show me all open P1 tickets across accounts"* and *"is TKT-501 an
+SLA breach for Northstar?"* — refused with `low_confidence`, while the proactive
+dashboard answered both correctly from the same database one tab away. The router
+could only plan `doc_search`, which found nothing citable, because *"how many
+tickets are past their target"* is not a sentence in any PDF. The logic was
+written and tested; it was simply unreachable from chat.
+
+`issue_scan` integrates without a validation exemption because every `Issue`
+already carried the clause defining the threshold it applied. A document says
+what the threshold *is*; a finding says which records crossed it. Together they
+are a citable answer — the same shape as `policy_decide`.
+
+Row-level security is what lets one cohort template serve both audiences: staff
+see the tenant, a customer sees their own account, and neither needs a different
+query. The scoping is on the connection, not a filter these tools remember to
+apply.
 
 `prepare_action` is the agent's only route to the real world, and it is a
 proposal. The model chooses the action *type* and writes the summary a human

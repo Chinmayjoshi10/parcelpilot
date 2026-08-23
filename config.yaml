@@ -174,6 +174,24 @@ tools:
   - name: prepare_action
     enabled: true
     requires_confirmation: true
+  # Cohort tools: questions about a SET of records rather than a named one.
+  # "How many tickets are past their target" is not a sentence in any PDF, so
+  # doc_search finds nothing citable and the run refuses -- which is exactly how
+  # both internal-console workflows used to fail.
+  #
+  # tenant_scoped, but note what that does and does not mean here: the scoping is
+  # row-level security on the connection, not a filter these tools apply. The
+  # same template therefore serves both audiences -- staff see the tenant, a
+  # customer sees their own account -- and neither needs a different query.
+  - name: cohort_query
+    enabled: true
+    tenant_scoped: true
+  # The deterministic detectors the proactive dashboard runs, reachable from
+  # chat. Each finding carries the clause defining the threshold it applied, so
+  # an answer built on one is citable exactly like a policy verdict.
+  - name: issue_scan
+    enabled: true
+    tenant_scoped: true
 
 security:
   # Trusted content may instruct the model. Retrieved documents, ticket bodies

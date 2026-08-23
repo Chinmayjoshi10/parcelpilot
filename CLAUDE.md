@@ -58,7 +58,7 @@ should fail a test, not pass review.
 
 ## What is built
 
-All phases complete. Verified: **188 Python tests**, **16 frontend tests**,
+All phases complete. Verified: **190 Python tests**, **16 frontend tests**,
 **22/22 full eval**, lint clean, schema at revision 8 with no drift, frontend
 builds. Answers land in **1.5-5s** end to end through the HTTP API; a
 cross-account refusal lands in **47ms** with no model call.
@@ -398,6 +398,29 @@ cost real time; do not rediscover them.
   past the 4-hour threshold" for the order the dashboard called 4.5 hours late.
   The credit amount stayed right, which is why nobody noticed. Set it to null in
   a real deployment.
+- **Every tool the engine dispatches is declared in `config.yaml`, and a test
+  enforces it.** `cohort_query` and `issue_scan` shipped dispatching in code and
+  absent from the config, so the reviewed description of the agent's capabilities
+  silently disagreed with the agent. `config.yaml` is the version-controlled
+  answer to "what could this thing do in August"; a capability with no
+  declaration there has had no review. An agreement enforced only by remembering
+  is the same shape as the tenancy filter this architecture exists to replace, so
+  it is now `tests/test_fast_router.py::TestToolsAreDeclared`.
+- **Prompt rules are neither free nor independent.** Adding two rules to the
+  shared 13-rule synthesis prompt degraded a DIFFERENT, already-passing answer:
+  the flagship cancellation question stopped citing the SOP clause it overrides,
+  and `answer-northstar-no-fee` went red. A longer constraint set is a heavier
+  reasoning load on every call, including the ones that were already right.
+  Guidance that applies to one tool belongs in that tool's prompt BLOCK, which
+  only appears when the tool ran -- so it costs nothing on the runs that never
+  see it. Same pattern the ACTION PREPARED block already used.
+- **A run that raises must still become terminal.** A malformed query raised
+  `RepositoryError`; the handler caught it and called `_step` then `_finish` to
+  record the failure, and BOTH silently failed too, because Postgres had already
+  aborted the transaction. The status stayed `running`, the stream held open, and
+  a hard SQL error presented as an infinitely spinning UI -- the error handler
+  could not report the error. `_mark_failed` rolls back first, and a catch-all
+  covers exception types the named clauses miss.
 - **A pattern that can propose an action must require an imperative.** The fast
   router keyed on the noun "escalation", so *"What is the escalation policy?"*
   staged a real escalation for approval. Nouns name a topic; verbs request an
