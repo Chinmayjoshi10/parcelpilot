@@ -131,7 +131,7 @@ export default function OpsConsole({ me, onInspectClause }) {
               <input
                 value={asOf}
                 onChange={(e) => setAsOf(e.target.value)}
-                className="tabular w-52 rounded border border-edge bg-base/60 px-2 py-1 text-[11px]"
+                className="tabular w-52 rounded border border-edge bg-raised px-2 py-1 text-[11px]"
                 title="Dataset is a snapshot; evaluate as of this instant"
               />
               <button onClick={refresh} className="btn-ghost px-2 py-1 text-xs">
@@ -147,7 +147,7 @@ export default function OpsConsole({ me, onInspectClause }) {
               {board.issues.map((issue, index) => (
                 <li
                   key={`${issue.kind}-${issue.subject_id}-${index}`}
-                  className="rounded-lg border border-edge bg-base/40 px-3 py-2.5"
+                  className="rounded-lg border border-edge bg-raised px-3 py-2.5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -157,7 +157,7 @@ export default function OpsConsole({ me, onInspectClause }) {
                           {issue.kind.replace(/_/g, ' ')}
                         </Pill>
                         {issue.account_id && (
-                          <span className="tabular text-[11px] text-muted/70">
+                          <span className="tabular text-[11px] text-muted">
                             {issue.account_id}
                           </span>
                         )}
@@ -227,7 +227,7 @@ export default function OpsConsole({ me, onInspectClause }) {
                       <Pill className="border-active/40 bg-active/10 text-active">
                         {action.action_type.replace(/_/g, ' ')}
                       </Pill>
-                      <span className="tabular text-[11px] text-muted/70">
+                      <span className="tabular text-[11px] text-muted">
                         {action.account_id}
                       </span>
                     </div>
@@ -236,12 +236,12 @@ export default function OpsConsole({ me, onInspectClause }) {
                     </p>
 
                     {action.payload && (
-                      <pre className="tabular mt-2 overflow-x-auto rounded border border-edge bg-base/70 p-2 text-[10px] text-muted">
+                      <pre className="tabular mt-2 overflow-x-auto rounded border border-edge bg-raised p-2 text-[10px] text-muted">
                         {JSON.stringify(action.payload, null, 2)}
                       </pre>
                     )}
 
-                    <p className="mt-1.5 text-[10px] text-muted/60">
+                    <p className="mt-1.5 text-[10px] text-muted">
                       prepared by {action.prepared_by} · expires{' '}
                       {new Date(action.expires_at).toLocaleTimeString()}
                     </p>
@@ -271,7 +271,7 @@ export default function OpsConsole({ me, onInspectClause }) {
               </ul>
             )}
 
-            <p className="mt-3 border-t border-white/[0.06] pt-2.5 text-[11px] leading-relaxed text-muted/70">
+            <p className="mt-3 border-t border-edge pt-2.5 text-[11px] leading-relaxed text-muted">
               Approval sends only an action id. The effect was frozen when the
               action was prepared, so it cannot be altered here — and a second
               approval reports the existing outcome instead of executing twice.

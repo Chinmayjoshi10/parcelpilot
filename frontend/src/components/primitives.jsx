@@ -112,14 +112,14 @@ export function Card({ title, subtitle, right, children, className = '' }) {
   return (
     <section className={`glass rounded-xl ${className}`}>
       {(title || right) && (
-        <header className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+        <header className="flex items-start justify-between gap-3 border-b border-edge px-4 py-3">
           <div>
             {title && (
               <h2 className="text-[11px] font-semibold uppercase tracking-widest text-muted">
                 {title}
               </h2>
             )}
-            {subtitle && <p className="mt-0.5 text-xs text-muted/70">{subtitle}</p>}
+            {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
           </div>
           {right}
         </header>
@@ -136,14 +136,14 @@ export function Stat({ label, value, tone = 'text-ink', hint }) {
         {label}
       </p>
       <p className={`tabular mt-1 text-2xl font-semibold ${tone}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-muted/70">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[11px] text-muted">{hint}</p>}
     </div>
   )
 }
 
 export function Empty({ children }) {
   return (
-    <p className="py-8 text-center text-sm text-muted/60">{children}</p>
+    <p className="py-8 text-center text-sm text-muted">{children}</p>
   )
 }
 

@@ -67,7 +67,7 @@ export default function SourcesPanel({ me }) {
                 <SourceRow key={source.filename} source={source} />
               ))}
             </ul>
-            <p className="mt-3 border-t border-white/[0.06] pt-2.5 text-[11px] leading-relaxed text-muted/70">
+            <p className="mt-3 border-t border-edge pt-2.5 text-[11px] leading-relaxed text-muted">
               These are not merely ranked lower. Eligibility is a gate, so no
               similarity score can make one of them support a claim — which is
               what stops a superseded policy being quoted as current.
@@ -93,7 +93,7 @@ export default function SourcesPanel({ me }) {
           with a query crafted to match its exact wording. There is no code path
           that forgets the filter, because the filter is not in the code.
         </p>
-        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-white/[0.06] pt-3">
+        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-edge pt-3">
           <Pill className="border-verified/40 bg-verified/10 text-verified">
             {groundable.length} citable
           </Pill>
@@ -113,11 +113,11 @@ export default function SourcesPanel({ me }) {
 
 function SourceRow({ source }) {
   return (
-    <li className="rounded-lg border border-edge bg-base/40 px-3 py-2.5">
+    <li className="rounded-lg border border-edge bg-raised px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-[13px] font-medium text-ink">{source.title}</p>
-          <p className="tabular mt-0.5 truncate text-[11px] text-muted/60">
+          <p className="tabular mt-0.5 truncate text-[11px] text-muted">
             {source.filename} · {source.page_count}p · {source.chunks} chunks
           </p>
         </div>
@@ -138,7 +138,7 @@ function SourceRow({ source }) {
             </Pill>
           )}
           {source.policy_family && (
-            <Pill className="border-edge text-muted/70">
+            <Pill className="border-edge text-muted">
               {source.policy_family}
               {source.version_label ? ` ${source.version_label}` : ''}
             </Pill>

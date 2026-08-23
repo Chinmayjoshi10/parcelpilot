@@ -207,14 +207,14 @@ export default function ChatPanel({ me, meta, onInspect }) {
                   value={asOf}
                   onChange={(e) => setAsOf(e.target.value)}
                   placeholder="ISO timestamp"
-                  className="tabular w-48 rounded border border-edge bg-base/60 px-2 py-1 text-[11px]"
+                  className="tabular w-48 rounded border border-edge bg-raised px-2 py-1 text-[11px]"
                 />
               </label>
             )}
             {turns.length > 0 && (
               <button
                 onClick={newThread}
-                className="rounded-md border border-edge px-2 py-1 text-[11px] text-muted transition hover:bg-raised/60 hover:text-ink"
+                className="rounded-md border border-edge px-2 py-1 text-[11px] text-muted transition hover:bg-raised hover:text-ink"
               >
                 New thread
               </button>
@@ -327,7 +327,7 @@ function Welcome({ suggestions, onPick }) {
           <button
             key={s}
             onClick={() => onPick(s)}
-            className="block w-full rounded-lg border border-edge/60 px-3 py-2 text-left text-[13px] text-muted transition hover:border-edge hover:bg-raised/50 hover:text-ink"
+            className="block w-full rounded-lg border border-edge/60 px-3 py-2 text-left text-[13px] text-muted transition hover:border-edge hover:bg-raised hover:text-ink"
           >
             {s}
           </button>
@@ -340,9 +340,9 @@ function Welcome({ suggestions, onPick }) {
 function UserTurn({ text, replayed }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] rounded-2xl rounded-br-md border border-edge bg-raised/70 px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
+      <div className="max-w-[85%] rounded-2xl rounded-br-md border border-edge bg-raised px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
         {replayed && (
-          <span className="mr-1.5 text-[10px] uppercase tracking-widest text-muted/70">
+          <span className="mr-1.5 text-[10px] uppercase tracking-widest text-muted">
             replay
           </span>
         )}
@@ -416,20 +416,20 @@ function Trace({ steps, running, elapsedMs }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-lg border border-edge/50 px-2.5 py-1.5 text-[11px] text-muted transition hover:bg-raised/50 hover:text-ink"
+        className="flex items-center gap-2 rounded-lg border border-edge/50 px-2.5 py-1.5 text-[11px] text-muted transition hover:bg-raised hover:text-ink"
       >
         <span className="text-verified">✓</span>
         <span>
           {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
         {elapsedMs != null && <span className="tabular">{formatMs(elapsedMs)}</span>}
-        <span className="text-muted/60">· show reasoning</span>
+        <span className="text-muted">· show reasoning</span>
       </button>
     )
   }
 
   return (
-    <div className="rounded-xl border border-edge/60 bg-surface/50 px-3 py-2.5">
+    <div className="rounded-xl border border-edge/60 bg-surface px-3 py-2.5">
       <div className="mb-1.5 flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
           Reasoning
@@ -439,7 +439,7 @@ function Trace({ steps, running, elapsedMs }) {
         ) : (
           <button
             onClick={() => setOpen(false)}
-            className="text-[10px] text-muted/70 transition hover:text-ink"
+            className="text-[10px] text-muted transition hover:text-ink"
           >
             hide
           </button>
@@ -456,7 +456,7 @@ function Trace({ steps, running, elapsedMs }) {
               <span className="text-ink/90">{step.label}</span>
               <StepDetail detail={step.detail} kind={step.kind} />
             </span>
-            <span className="tabular shrink-0 text-[11px] text-muted/60">
+            <span className="tabular shrink-0 text-[11px] text-muted">
               {formatMs(step.duration_ms)}
             </span>
           </li>
@@ -511,7 +511,7 @@ function PendingStep({ steps }) {
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-active" />
       </span>
       <span className="min-w-0 flex-1 text-muted">{label}…</span>
-      <span className="tabular shrink-0 text-[11px] text-muted/50">
+      <span className="tabular shrink-0 text-[11px] text-faint">
         {(elapsed / 1000).toFixed(1)}s
       </span>
     </li>
@@ -539,7 +539,7 @@ const Composer = forwardRef(function Composer({ value, onChange, onSend, running
   }, [value])
 
   return (
-    <div className="mt-3 rounded-2xl border border-edge bg-surface/80 px-3 py-2.5 focus-within:border-white/20">
+    <div className="mt-3 rounded-2xl border border-edge bg-surface px-3 py-2.5 focus-within:border-active/60">
       <div className="flex items-end gap-2">
         <textarea
           ref={area}
@@ -553,7 +553,7 @@ const Composer = forwardRef(function Composer({ value, onChange, onSend, running
             }
           }}
           placeholder={running ? 'Working…' : 'Ask anything about your account…'}
-          className="max-h-40 flex-1 resize-none border-0 bg-transparent p-0 text-[13.5px] leading-relaxed text-ink placeholder-muted/50 focus:outline-none focus:ring-0"
+          className="max-h-40 flex-1 resize-none border-0 bg-transparent p-0 text-[13.5px] leading-relaxed text-ink placeholder-faint focus:outline-none focus:ring-0"
         />
         <button
           onClick={onSend}
@@ -564,7 +564,7 @@ const Composer = forwardRef(function Composer({ value, onChange, onSend, running
           {running ? '⋯' : '↑'}
         </button>
       </div>
-      <p className="mt-1.5 text-[10px] text-muted/50">
+      <p className="mt-1.5 text-[10px] text-faint">
         Enter to send · Shift+Enter for a new line
       </p>
     </div>
@@ -588,7 +588,7 @@ function StepDetail({ detail, kind }) {
   if (!bits.length) return null
   return (
     <span
-      className={`ml-2 text-[11px] ${kind === 'conflict' ? 'text-warn/80' : 'text-muted/70'}`}
+      className={`ml-2 text-[11px] ${kind === 'conflict' ? 'text-warn/80' : 'text-muted'}`}
     >
       {bits.join(' · ')}
     </span>
@@ -609,7 +609,7 @@ function AnswerView({ answer, runId, onInspect }) {
             {answer.refusal.message}
           </p>
         </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-muted/70">
+        <p className="mt-3 text-[11px] leading-relaxed text-muted">
           The system refuses rather than composing an answer it cannot trace to a
           source. Every claim it does make is validated against the document it
           quotes, so a refusal here means the evidence genuinely was not there.
@@ -677,7 +677,7 @@ function AnswerView({ answer, runId, onInspect }) {
         </div>
       )}
 
-      <div className="mt-4 space-y-1 border-t border-white/[0.06] pt-3">
+      <div className="mt-4 space-y-1 border-t border-edge pt-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
           Sources
         </p>
@@ -685,7 +685,7 @@ function AnswerView({ answer, runId, onInspect }) {
           <button
             key={index}
             onClick={() => onInspect?.({ runId, citation, index: index + 1 })}
-            className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left text-[12px] text-muted transition hover:bg-raised/40 hover:text-ink"
+            className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left text-[12px] text-muted transition hover:bg-raised hover:text-ink"
           >
             <span className="cite shrink-0">{index + 1}</span>
             <span className="line-clamp-2 italic">
@@ -760,10 +760,10 @@ function RecentRuns({ onOpen, refreshToken }) {
               onClick={() =>
                 api.getRun(run.run_id).then(onOpen).catch(() => {})
               }
-              className="w-full rounded-md px-1.5 py-1.5 text-left transition hover:bg-raised/40"
+              className="w-full rounded-md px-1.5 py-1.5 text-left transition hover:bg-raised"
             >
               <span className="line-clamp-1 text-[12px] text-ink/85">{run.query}</span>
-              <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted/60">
+              <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
                 {run.refusal_reason ? (
                   <span className="text-warn/80">declined</span>
                 ) : (
@@ -831,7 +831,7 @@ function ConfirmationDrawer({ action, me, onSettled, onError }) {
         </div>
       )}
 
-      <p className="tabular mt-2 text-[10px] text-muted/60">
+      <p className="tabular mt-2 text-[10px] text-muted">
         expires {expires.toLocaleTimeString()} · account {action.account_id}
       </p>
 
@@ -859,7 +859,7 @@ function ConfirmationDrawer({ action, me, onSettled, onError }) {
         </p>
       )}
 
-      <p className="mt-3 border-t border-white/[0.06] pt-2.5 text-[11px] leading-relaxed text-muted/70">
+      <p className="mt-3 border-t border-edge pt-2.5 text-[11px] leading-relaxed text-muted">
         Approving sends only this action's id. The effect was frozen server-side
         when it was prepared, so nothing in this interface can change what runs —
         and a second approval reports the existing outcome instead of running

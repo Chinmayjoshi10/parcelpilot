@@ -3,14 +3,28 @@
 @tailwind utilities;
 
 /*
- * Calquity: dark, institutional, precision-driven. The visual language is
- * doing a job here -- authority and freshness are encoded in colour, so a
- * reader can see at a glance whether an answer rests on a contract or on a
- * superseded policy.
+ * CalQuity's visual language, read off the live site.
+ *
+ * Four signatures carry it, and they're worth naming because none of them is
+ * decoration:
+ *
+ *   1. A warm off-white ground (#FEFDFB, not #fff) under a faint dot grid.
+ *      Paper, not screen — which suits a product whose output is meant to be
+ *      read, quoted and defended in a meeting.
+ *   2. Hanken Grotesk at weight 500 with tight tracking. Not bold. Their
+ *      headings are large and confident without shouting.
+ *   3. One accent — slate blue — and one semantic green, reserved for the idea
+ *      the whole product rests on: a claim traced to its source.
+ *   4. Floating pill shapes with soft shadow. On a light ground, elevation is
+ *      shadow; on a dark one it was a lighter fill.
+ *
+ * The colour tokens still encode authority and freshness, so a reader can see
+ * at a glance whether an answer rests on a contract or a superseded policy.
+ * Only the hexes moved — the meanings didn't.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -21,10 +35,27 @@ body,
 
 body {
   margin: 0;
-  background: #080a0f;
-  color: #f8fafc;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: #fefdfb;
+  /* The dot grid. Fixed so it reads as the page's ground rather than as
+     texture on a scrolling surface. */
+  background-image: radial-gradient(rgba(10, 10, 11, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-attachment: fixed;
+  color: #0a0a0b;
+  font-family: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16.5px;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings: 500, tight. Matching what the live site actually sets rather than
+   reaching for bold. */
+h1,
+h2,
+h3 {
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
 }
 
 /* Numbers and timings are monospaced so step durations line up vertically and
@@ -35,8 +66,9 @@ body {
 }
 
 @layer components {
+  /* On paper, a card lifts by shadow and a hairline — not by a lighter fill. */
   .glass {
-    @apply bg-surface/70 border border-white/[0.06] backdrop-blur-md shadow-glass;
+    @apply rounded-2xl border border-edge bg-surface shadow-card;
   }
 
   .pill {
@@ -44,42 +76,52 @@ body {
            font-medium uppercase tracking-wide;
   }
 
-  /* Citation chips. Superscript, emerald, and clickable -- the affordance says
-     "there is evidence behind this, and you can see it". */
+  /* Citation chips. Superscript, forest green, clickable — the affordance says
+     "there is evidence behind this, and you can open it". This is the single
+     most CalQuity element on the page: their entire pitch is "every claim
+     traces to its source paragraph". */
   .cite {
-    @apply relative -top-[2px] mx-[1px] inline-flex h-4 min-w-4 items-center
-           justify-center rounded border border-verified/40 bg-verified/10 px-1
+    @apply relative -top-[2px] mx-[1px] inline-flex h-[17px] min-w-[17px] items-center
+           justify-center rounded-[4px] border border-verified/30 bg-verified/[0.08] px-1
            align-super text-[10px] font-semibold text-verified transition-colors
-           hover:bg-verified/25 hover:border-verified;
+           hover:border-verified hover:bg-verified/[0.16];
     font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
 
   .field {
-    @apply w-full rounded-lg border border-edge bg-base/60 px-3 py-2 text-sm
-           text-ink placeholder-muted/50 outline-none transition
-           focus:border-active/60 focus:ring-1 focus:ring-active/30;
+    @apply w-full rounded-xl border border-edge bg-surface px-3 py-2 text-sm
+           text-ink placeholder-faint outline-none transition
+           focus:border-active/70 focus:ring-2 focus:ring-active/15;
   }
 
+  /* Their buttons are pills, and the primary is the slate blue. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2
            text-sm font-semibold transition active:scale-[0.98]
            disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .btn-primary {
-    @apply btn bg-verified text-base hover:bg-verified/90;
+    @apply btn bg-active text-white shadow-pill hover:bg-active/90;
   }
 
   .btn-ghost {
-    @apply btn border border-edge text-muted hover:border-active/50 hover:text-ink;
+    @apply btn border border-edge bg-surface text-muted hover:border-edge-strong hover:text-ink;
   }
 
   .btn-danger {
-    @apply btn border border-breach/40 text-breach hover:bg-breach/10;
+    @apply btn border border-breach/35 bg-surface text-breach hover:bg-breach/[0.07];
   }
 }
 
-/* Scrollbars, restrained. */
+/* Focus visible everywhere, in the accent. Keyboard users get the same
+   affordance the mouse gets. */
+:focus-visible {
+  outline: 2px solid #3a5c78;
+  outline-offset: 2px;
+}
+
+/* Scrollbars, restrained, on paper. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -88,20 +130,35 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #d2cfc7;
   border-radius: 6px;
-  border: 2px solid #080a0f;
+  border: 2px solid #fefdfb;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #b8b4aa;
 }
 
-/* The reasoning stream's active step. Subtle -- it should read as "working",
+/* The reasoning stream's active step. Subtle — it should read as "working",
    not as an alarm. */
 @keyframes pulse-ring {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .working {
   animation: pulse-ring 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working {
+    animation: none;
+    opacity: 0.7;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }

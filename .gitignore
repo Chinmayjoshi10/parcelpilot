@@ -35,3 +35,4 @@ docs/artifacts/
 docs/INTERVIEW_PREP.md
 docs/BUILD_STEPS.md
 *.code-workspace
+.gstack/

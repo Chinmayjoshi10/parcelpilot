@@ -105,7 +105,7 @@ export default function LoginScreen({ onSignedIn, meta }) {
         )}
 
         {meta && (
-          <p className="tabular mt-8 text-center text-[10px] text-muted/50">
+          <p className="tabular mt-8 text-center text-[10px] text-faint">
             {meta.provider} · {meta.synthesis_model} · retrieval{' '}
             {meta.retrieval_mode}
             {meta.active_index
@@ -125,7 +125,7 @@ function Group({ title, note, children }) {
       <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted">
         {title}
       </h2>
-      <p className="mt-1 text-[11px] leading-relaxed text-muted/60">{note}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted">{note}</p>
       <div className="mt-2.5 space-y-1.5">{children}</div>
     </section>
   )
@@ -141,7 +141,7 @@ function Option({ login, busy, onClick }) {
     >
       <div className="min-w-0">
         <p className="truncate text-[13px] font-medium text-ink">{login.label}</p>
-        <p className="tabular mt-0.5 text-[11px] text-muted/60">{login.user_id}</p>
+        <p className="tabular mt-0.5 text-[11px] text-muted">{login.user_id}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {login.account_id && (
@@ -159,7 +159,7 @@ function Option({ login, busy, onClick }) {
         {busy ? (
           <Spinner label="" />
         ) : (
-          <span className="text-muted/40 transition group-hover:text-verified">→</span>
+          <span className="text-faint transition group-hover:text-verified">→</span>
         )}
       </div>
     </button>

@@ -76,13 +76,13 @@ export default function App() {
 
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-base/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-edge bg-base/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
           <div className="flex items-baseline gap-2">
             <span className="text-sm font-semibold tracking-tight text-verified">
               ParcelPilot
             </span>
-            <span className="text-[10px] uppercase tracking-widest text-muted/60">
+            <span className="text-[10px] uppercase tracking-widest text-muted">
               {me.is_staff ? 'Operations' : 'Customer portal'}
             </span>
           </div>
@@ -95,7 +95,7 @@ export default function App() {
                 className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition ${
                   tab === key
                     ? 'bg-raised text-ink'
-                    : 'text-muted hover:bg-raised/50 hover:text-ink'
+                    : 'text-muted hover:bg-raised hover:text-ink'
                 }`}
               >
                 {config.label}
@@ -113,7 +113,7 @@ export default function App() {
               </Pill>
             )}
             {meta?.active_index && (
-              <span className="tabular hidden text-[10px] text-muted/60 sm:inline">
+              <span className="tabular hidden text-[10px] text-muted sm:inline">
                 index v{meta.active_index.index_version_id}
               </span>
             )}

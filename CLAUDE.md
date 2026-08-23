@@ -445,34 +445,50 @@ cost real time; do not rediscover them.
 
 ---
 
-## Calquity design system (unchanged — frontend spec)
+## CalQuity design system (read from the live site, not invented)
 
-Sleek, dark, institutional, precision-driven, cited. A high-end terminal for
-analysts.
+The earlier version of this section was a guess -- "sleek, dark, institutional",
+a near-black ground with cyan and emerald. calquity.com is the opposite, and the
+tokens below are sampled from computed styles on the live page.
 
-**Palette:** bg `#080A0F` · surface `#0F141F` / `#131B2E` · border
-`rgba(255,255,255,0.08)` / `#1E293B` · text `#F8FAFC` · muted `#94A3B8` ·
-emerald `#10B981` (citations, verified) · cyan `#38BDF8` (active tool calls) ·
-amber `#F59E0B` (deprecated, warnings) · crimson `#EF4444` (P1, SLA breach).
+**Ground is warm paper, not screen.** `#FEFDFB` (not `#fff`) under a faint dot
+grid, `radial-gradient(rgba(10,10,11,.055) 1px, transparent 1px)` at `22px`,
+`background-attachment: fixed`. Their most distinctive signature and nearly free
+to reproduce.
 
-**Type:** `Inter` / `Outfit` / system sans; `JetBrains Mono` for timers and
-numbers (`Decompose 0.1s`, `Search 1.4s`).
+**Palette** -- ink `#0A0A0B` (near-black, a hair warm) - muted `#5A5A5E` - faint
+`#8E8E95` - surface `#FFFFFF` (a card lifts by being pure white on warm paper) -
+raised `#F3F2EE` - hairline `#E3E1DB`. One accent: slate blue `#3A5C78`, the only
+accent on their entire page (100 uses). One semantic green: `#2E7D5B`, reserved
+for cited answers -- which is their whole product thesis, so it is reserved for
+ours too.
 
-**Vibe:** glassmorphism cards (`backdrop-filter: blur(12px)`), subtle hover
-borders, pill tags, superscript citation chips `[1]` `[2]`.
+**Type** -- `Hanken Grotesk` for everything, `JetBrains Mono` for figures and
+timings. Headings are weight **500**, not bold, with tight tracking (`-2.61px` on
+`58px`, so about `-0.045em`). Body `16.5px`.
+
+**Shape** -- floating pills with soft shadow, generous whitespace, two-tone
+headlines (ink then muted). On a light ground elevation is *shadow*; on the old
+dark one it was a lighter fill, which is the one non-mechanical part of the swap.
+
+Because the tokens are named by ROLE (`verified`, `active`, `edge`) rather than
+by colour, moving from dark to paper was a config change plus a contrast pass --
+not a find-and-replace across every component. `verified` still means verified;
+only its hex moved. The contrast pass mattered: `text-muted/60` read fine on
+`#080A0F` and lands at about 2.7:1 on paper, which fails AA, so de-emphasis
+utilities were remapped to solid tokens.
 
 **Four UI signatures:**
-1. **Live reasoning stream** — backed by the durable run log, so it survives a
+1. **Live reasoning stream** -- backed by the durable run log, so it survives a
    reconnect and is replayable after the fact. It streams inside the turn it
-   belongs to and collapses to `✓ 6 steps · 4.2s · show reasoning` when the
+   belongs to and collapses to `✓ 5 steps · 7.8s · show reasoning` when the
    answer lands: a trace that never gets out of the way is one people learn to
-   scroll past, and a trace nobody reads verifies nothing.
-2. **Citation chips** — click opens the exact paragraph, with freshness
-   (`CURRENT`/`DEPRECATED`) and authority.
-3. **Dual context switcher** — Customer portal (own account only, enforced in
+   scroll past, and a trace nobody reads verifies nothing. CalQuity shows the
+   same thing on their own hero, with per-step timers.
+2. **Citation chips** -- superscript, forest green, clickable; opens the exact
+   paragraph with freshness (`CURRENT`/`DEPRECATED`) and authority.
+3. **Dual context switcher** -- Customer portal (own account only, enforced in
    the database) vs Internal operations console (tenant-wide + proactive
-   dashboard).
-   A real conversation thread, not a query form: turns persist, Enter sends, and
-   every turn shares one `conversation_id` so the thread is durable in the
-   database rather than only in React state.
-4. **Action confirmation drawer** — approves a ledger row by `action_id`.
+   dashboard). A real conversation thread, not a query form: turns persist,
+   Enter sends, and every turn shares one `conversation_id`.
+4. **Action confirmation drawer** -- approves a ledger row by `action_id`.

@@ -56,8 +56,8 @@ export default function CitationInspector({ open, runId, citation, index, onClos
         onClick={onClose}
         className="flex-1 bg-black/60 backdrop-blur-sm"
       />
-      <aside className="flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-surface shadow-2xl">
-        <header className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+      <aside className="flex h-full w-full max-w-xl flex-col border-l border-edge bg-surface shadow-pill">
+        <header className="flex items-start justify-between gap-3 border-b border-edge px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="cite">{index}</span>
@@ -79,7 +79,7 @@ export default function CitationInspector({ open, runId, citation, index, onClos
         </header>
 
         {source && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] px-5 py-3">
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-edge px-5 py-3">
             <AuthorityBadge
               authority={source.authority}
               sourceClass={source.source_class}
@@ -106,11 +106,11 @@ export default function CitationInspector({ open, runId, citation, index, onClos
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted">
                 Stored text · cited span highlighted
               </p>
-              <div className="whitespace-pre-wrap rounded-lg border border-edge bg-base/60 p-4 text-[13px] leading-relaxed text-ink/90">
+              <div className="whitespace-pre-wrap rounded-lg border border-edge bg-raised p-4 text-[13px] leading-relaxed text-ink/90">
                 <Highlighted text={source.text} quote={citation.quote} />
               </div>
 
-              <p className="mt-4 text-[11px] leading-relaxed text-muted/70">
+              <p className="mt-4 text-[11px] leading-relaxed text-muted">
                 The highlight is positioned using the character offsets resolved
                 by the citation validator when this answer was produced. The
                 quote was matched against this text character-for-character
