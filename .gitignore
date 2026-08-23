@@ -41,3 +41,7 @@ docs/BUILD_STEPS.md
 # longer uses -- the real tokens were read off calquity.com and are documented in
 # CLAUDE.md. A published spec that contradicts the code is worse than none.
 CALQUITY_DESIGN_SYSTEM.md
+
+# Deploy-time credential scratch files. Never in the repo; they exist only
+# while a deployment is being wired up.
+.railway-*

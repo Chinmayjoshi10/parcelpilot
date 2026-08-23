@@ -145,7 +145,16 @@ def bootstrap(settings: Settings | None = None) -> dict[str, str]:
         ) from exc
 
     # CREATE DATABASE cannot run inside a transaction block.
-    with psycopg.connect(cfg.admin_database_url, autocommit=True) as conn:
+    # `dict_row` because the encoding check below reads a column BY NAME.
+    # Without it the rows are tuples, and the branch that reads them only
+    # runs when the target database ALREADY EXISTS -- which never happens
+    # locally, because bootstrap creates it. The first managed Postgres this
+    # ran against (Railway ships a `railway` database) crashed with
+    # `TypeError: tuple indices must be integers`, on the deploy path, at the
+    # first command of the deploy.
+    with psycopg.connect(
+        cfg.admin_database_url, autocommit=True, row_factory=dict_row
+    ) as conn:
         for role, password in ((OWNER_ROLE, owner_password), (APP_ROLE, app_dsn.password)):
             exists = conn.execute(
                 "SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)
