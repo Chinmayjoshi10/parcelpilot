@@ -1,4 +1,4 @@
-# ParcelPilot — Technical Decisions, Rationale, and What We Learned
+# ParcelPilot — Technical Decisions, Rationale, and What I Learned
 
 > Engineering record for the Calquity assessment. What was built, why each
 > choice was made, what we rejected, and the defects the build surfaced.
