@@ -72,11 +72,36 @@ def get_llm(settings: Settings | None = None) -> LLM:
     return _llm_singleton
 
 
+def _has_provider_credentials(cfg: Settings) -> bool:
+    """Whether ANY usable credential is configured, in any accepted form.
+
+    This predicate existed in four places and every copy omitted
+    `google_application_credentials_json` -- the form a managed host must use,
+    because there is nowhere to put a key file. `agentcore/llm/vertex.py` accepts
+    it and materialises it to a 0600 file, so the credential worked; the checks
+    guarding the way to it did not know that.
+
+    The consequences were quiet and separately misleading. `_build_llm` returned
+    a NullLLM, so the deployed engine refused every question with
+    `upstream_unavailable` -- which reads as a provider outage. `_build_embedder`
+    returned None, so ingestion reported `embedded: 0` and dense retrieval
+    vanished while readiness stayed green. `probe` reported "no credentials set"
+    about credentials that were present and working.
+
+    One function now, because a predicate copied four times is four chances to
+    disagree with the code that acts on it.
+    """
+    return bool(
+        cfg.llm_api_key
+        or cfg.vertex_access_token
+        or cfg.google_application_credentials
+        or cfg.google_application_credentials_json
+    )
+
+
 def _build_llm(cfg: Settings) -> LLM:
 
-    has_credentials = bool(
-        cfg.llm_api_key or cfg.vertex_access_token or cfg.google_application_credentials
-    )
+    has_credentials = _has_provider_credentials(cfg)
     if cfg.llm_provider == "null" or not has_credentials:
         log.warning(
             "llm_unavailable",
@@ -148,12 +173,7 @@ def _build_embedder(cfg: Settings) -> Embedder | None:
     # gone -- exactly the shape of degradation this codebase keeps trying to make
     # loud. Credentials were present the whole time, in the one form the check
     # could not see.
-    if cfg.embedding_backend == "api" and not (
-        cfg.llm_api_key
-        or cfg.vertex_access_token
-        or cfg.google_application_credentials
-        or cfg.google_application_credentials_json
-    ):
+    if cfg.embedding_backend == "api" and not _has_provider_credentials(cfg):
         log.warning(
             "embeddings_unavailable",
             reason="EMBEDDING_BACKEND=api but no provider credentials are set",
@@ -211,6 +231,7 @@ async def _probe_vertex(cfg: Settings, result: dict[str, Any]) -> dict[str, Any]
             if cfg.vertex_access_token
             else "service_account"
             if cfg.google_application_credentials
+            or cfg.google_application_credentials_json
             else "api_key_express"
             if cfg.llm_api_key
             else "none"
@@ -267,13 +288,9 @@ async def probe(settings: Settings | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "provider": cfg.llm_provider,
         "key_present": bool(cfg.llm_api_key),
-        "credentials_present": bool(
-            cfg.llm_api_key or cfg.vertex_access_token or cfg.google_application_credentials
-        ),
+        "credentials_present": _has_provider_credentials(cfg),
     }
-    if not (
-        cfg.llm_api_key or cfg.vertex_access_token or cfg.google_application_credentials
-    ):
+    if not _has_provider_credentials(cfg):
         result["error"] = (
             "no credentials set. Gemini API needs LLM_API_KEY; Vertex needs one of "
             "LLM_API_KEY (express), VERTEX_ACCESS_TOKEN, or "
