@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import ChatPanel from './components/ChatPanel'
+import DesignNotes from './components/DesignNotes'
 import CitationInspector from './components/CitationInspector'
 import LoginScreen from './components/LoginScreen'
 import OpsConsole from './components/OpsConsole'
@@ -25,6 +26,10 @@ const TABS = {
   ask: { label: 'Ask', staffOnly: false },
   operations: { label: 'Operations', staffOnly: true },
   sources: { label: 'Sources', staffOnly: false },
+  // Not staff-only on purpose. Whoever opens the hosted URL cold should be able
+  // to read why the system behaves as it does — a product whose claim is "you
+  // can check my work" should not keep its reasoning outside itself.
+  design: { label: 'How it works', staffOnly: false },
 }
 
 export default function App() {
@@ -155,6 +160,7 @@ export default function App() {
           />
         )}
         {tab === 'sources' && <SourcesPanel me={me} />}
+        {tab === 'design' && <DesignNotes />}
       </main>
 
       <CitationInspector
