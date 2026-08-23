@@ -36,3 +36,8 @@ docs/INTERVIEW_PREP.md
 docs/BUILD_STEPS.md
 *.code-workspace
 .gstack/
+
+# Stale design spec. It described a dark obsidian palette that the frontend no
+# longer uses -- the real tokens were read off calquity.com and are documented in
+# CLAUDE.md. A published spec that contradicts the code is worse than none.
+CALQUITY_DESIGN_SYSTEM.md
