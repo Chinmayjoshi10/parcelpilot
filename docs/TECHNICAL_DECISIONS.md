@@ -853,24 +853,39 @@ record it had never seen.
 The halt was real and tested. It was reachable only by callers who typed an id
 the way the database writes it.
 
-Two things came out of it:
+**The first fix was the wrong kind of fix.** I relaxed the separator and added
+the spoken forms, so `ord 2001`, `ord2001` and `ORD - 2001` all resolved. Tests
+passed, the eval passed, and the next phrasing broke it again: *"whats the fee
+onord 2001"* runs "on" into "ord", putting the prefix mid-word where a left word
+boundary cannot match. Widening a prefix alternation once per typo is a losing
+game — every round ships a guard that only reaches people who type cleanly, and
+the failure mode is silent each time.
 
-- **Separators are optional and spoken forms count.** `order 2001`, `ord2001`,
-  `ORD - 2001`, `ticket 501` all normalise to the canonical id. Digits are
-  bounded at 3–6 and a trailing unit word disqualifies a match, so *"after 30
-  minutes"*, *"charge INR 250"* and *"5000 rows"* are not read as records.
-- **The pattern existed twice.** `router.py` planned lookups with one copy and
-  `engine.py` recovered ids for the action gate with another. Fixing only the
-  router would have left the planner reading `ord 2001` while the gate still
-  demanded `ORD-2001` — a run could stage an action against a record the halt
-  had never checked. There is now one recogniser, and a test asserts the
-  duplicate is gone.
+So the search is inverted. Find the **digits** first — a 3-to-6 digit run is rare
+and unambiguous to locate — then decide whether they name a record by looking at
+the short window of text before them. That is stable under separators, case,
+run-together words and stray punctuation, because none of those change what word
+precedes the number. Two rules stop it over-reading: a trailing unit word vetoes
+the match, so *"after 30 minutes"*, *"charge INR 250"* and *"5000 rows"* stay
+quantities; and a bare number with no record word before it names nothing, so
+*"can I upload 4200 rows"* is not an order.
+
+The pattern also **existed twice**. `router.py` planned lookups with one copy and
+`engine.py` recovered ids for the action gate with another. Fixing only the router
+would have left the planner reading `ord 2001` while the gate still demanded
+`ORD-2001` — a run could stage an action against a record the halt had never
+checked. There is now one recogniser, and a test asserts the duplicate is gone.
 
 Found by a user typing the question the way people actually type it, not by a
 test. Every phrasing in the golden set used canonical ids, because the person who
 wrote both the set and the pattern held the same idea of what an id looks like.
 That is the same shape as §5.9: a guard whose author and whose caller disagree
 about the input is not a guard, and the disagreement is invisible from inside.
+
+The generalisable lesson is narrower than "handle typos". It is that **a guard
+keyed on the surface form of input inherits every way that form can vary**, and
+the fix is to key it on something that does not vary — here, the shape of the
+number rather than the spelling of the label.
 
 ### The defect every gate missed: CRLF
 

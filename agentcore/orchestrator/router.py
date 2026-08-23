@@ -34,55 +34,89 @@ log = get_logger(__name__)
 #: Fixed-shape record ids. Case-insensitive because users type them either way.
 #: Record identifiers as people actually type them.
 #:
-#: The first version required a literal hyphen: `(?:TKT|ORD|ACCT)-\d+`. Asked
-#: "what is cancelation price of ord 2001" it matched nothing -- so no scoped
-#: lookup ran, the not-visible halt never fired, and the run answered from
-#: general policy as though the order were the caller's. ORD-2001 belongs to a
-#: different customer. Nothing leaked, because no row was ever read, but a
-#: confident answer about someone else's record is the failure this system
-#: exists to prevent, and a guard that depends on punctuation is not a guard.
+#: This started as `(?:TKT|ORD|ACCT)-\d+`. Asked "what is cancelation price of
+#: ord 2001" it matched nothing -- so no scoped lookup ran, the not-visible halt
+#: never fired, and the run answered from general policy as though the order were
+#: the caller's. ORD-2001 belongs to a different customer.
 #:
-#: So separators are optional, the spoken forms count ("order 2001",
-#: "ticket 501"), and every match normalises to the canonical id. Digits are
-#: bounded at 3-6 and a trailing unit word disqualifies the match, so "after 30
-#: minutes" and "3000 rows" are not mistaken for records.
-_ID_PREFIXES = {
-    "ord": "ORD",
-    "order": "ORD",
-    "tkt": "TKT",
-    "ticket": "TKT",
-    "acct": "ACCT",
-    "account": "ACCT",
-}
+#: Relaxing the separator fixed that phrasing and not the next one: "whats the
+#: fee onord 2001" glues the prefix to the preceding word, where a left word
+#: boundary cannot match. Widening the prefix alternation once per typo is a
+#: losing game, and each round leaves the guard reachable only by people who
+#: typed cleanly.
+#:
+#: So the search is inverted. Find the digits -- a 3-to-6 digit run is rare and
+#: unambiguous to locate -- then decide whether they name a record by looking at
+#: the short window of text before them. That is stable under separators, case,
+#: run-together words and stray punctuation, because none of those change what
+#: word precedes the number.
+#:
+#: Two things keep it from over-reading. A trailing unit word disqualifies a
+#: match, so "after 30 minutes", "charge INR 250" and "5000 rows" are quantities.
+#: And a bare number with no record word before it is not a record: "can I upload
+#: 4200 rows" names no order.
+_RECORD_WORDS: tuple[tuple[str, str], ...] = (
+    # Longest first, so "order" is not read as "ord" with a stray "er".
+    ("account", "ACCT"),
+    ("shipment", "ORD"),
+    ("ticket", "TKT"),
+    ("order", "ORD"),
+    ("acct", "ACCT"),
+    ("case", "TKT"),
+    ("ord", "ORD"),
+    ("tkt", "TKT"),
+)
 
 _UNIT_WORDS = (
     "minute", "minutes", "min", "mins", "hour", "hours", "hr", "hrs",
-    "day", "days", "row", "rows", "rupee", "rupees", "inr", "percent",
+    "day", "days", "week", "weeks", "row", "rows", "rupee", "rupees",
+    "inr", "usd", "percent", "kg", "km",
 )
 
+#: The digits, plus a veto on anything that reads as a quantity.
 RECORD_ID_RE = re.compile(
-    r"\b(ord(?:er)?|tkt|ticket|acct|account)"
-    r"[\s\-_.#:]{0,3}"
-    r"(\d{3,6})\b"
-    r"(?!\s*(?:" + "|".join(_UNIT_WORDS) + r")\b)",
+    r"(\d{3,6})\b(?!\s*(?:" + "|".join(_UNIT_WORDS) + r")\b)",
     re.IGNORECASE,
 )
+
+#: How far back to look for the record word. Long enough for "order no. 2001"
+#: and "ticket #501", short enough that a noun in the previous clause does not
+#: capture a number belonging to this one.
+_LOOKBACK = 14
 
 
 def find_record_ids(text: str) -> list[str]:
     """Canonical record ids named in `text`, in order, without duplicates.
 
-    Deterministic, and incapable of inventing an id: it reports only prefixes
-    and digits the caller actually typed. Whatever it returns is still resolved
+    Deterministic, and incapable of inventing an id: both halves come from
+    characters the caller actually typed. Whatever it returns is still resolved
     through the scoped connection, so row-level security -- not this function --
     decides whether that record exists for this caller.
     """
+    if not text:
+        return []
+
+    lowered = text.lower()
     found: list[str] = []
-    for prefix, digits in RECORD_ID_RE.findall(text or ""):
-        canonical = f"{_ID_PREFIXES[prefix.lower()]}-{digits}"
-        if canonical not in found:
-            found.append(canonical)
+
+    for match in RECORD_ID_RE.finditer(lowered):
+        window = lowered[max(0, match.start() - _LOOKBACK) : match.start()]
+        # Nearest record word wins: in "order 1001 and ticket 501" the window
+        # before "501" holds both, and "ticket" is the one that applies.
+        prefix = None
+        best = -1
+        for word, canonical in _RECORD_WORDS:
+            at = window.rfind(word)
+            if at > best:
+                best, prefix = at, canonical
+        if prefix is None or best < 0:
+            continue
+        candidate = f"{prefix}-{match.group(1)}"
+        if candidate not in found:
+            found.append(candidate)
+
     return found
+
 
 #: Verbs that mean "do something", as opposed to "tell me something".
 #:

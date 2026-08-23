@@ -402,6 +402,15 @@ class TestRecordIdsAsPeopleTypeThem:
             ("look up acct 001 and ORD-1001", ["ACCT-001", "ORD-1001"]),
             # Order preserved, duplicates collapsed.
             ("ORD-1001 and ord 1001 again", ["ORD-1001"]),
+            # The prefix glued to the preceding word. A left word boundary
+            # cannot match inside "onord", which is why the search runs from
+            # the digits backwards instead of from the prefix forwards.
+            ("whats the fee onord 2001", ["ORD-2001"]),
+            ("order no. 2001", ["ORD-2001"]),
+            ("ticket #501 please", ["TKT-501"]),
+            ("shipment 1001 status", ["ORD-1001"]),
+            # The nearest record word wins, not the first one.
+            ("order 1001 and ticket 501", ["ORD-1001", "TKT-501"]),
         ],
     )
     def test_spoken_and_written_forms_both_resolve(self, question, expected):
@@ -418,6 +427,9 @@ class TestRecordIdsAsPeopleTypeThem:
             "Show me all open P1 tickets across accounts",
             "issue a credit for 300 rupees",
             "resolve within 4 hours",
+            # A bare number with no record word before it names nothing.
+            "can I upload 4200 rows",
+            "in 2024 we shipped a lot",
         ],
     )
     def test_quantities_are_not_read_as_records(self, question):
