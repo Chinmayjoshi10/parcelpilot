@@ -1,0 +1,37 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.secrets/
+*.json.key
+service-account*.json
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+*.log
+/artifacts/
+
+# Build and tooling artefacts
+*.egg-info/
+.mypy_cache/
+coverage.xml
+.coverage
+
+# Secrets, belt and braces. `.env` and `.secrets/` are already excluded
+# above; these cover the shapes a well-meaning person might add next.
+*.pem
+*-service-account.json
+vertex-sa*.json
+.env.*
+!.env.example
+
+# Candidate-side working notes. Kept on disk, out of the published repo: these
+# are planning scaffolding and positioning notes, not engineering artefacts, and
+# the repo reads better without them. The documents the assessment asks for --
+# the architecture note, the product note, the decision log and the demo script
+# -- are all tracked.
+docs/artifacts/
+docs/INTERVIEW_PREP.md
+docs/BUILD_STEPS.md
+*.code-workspace

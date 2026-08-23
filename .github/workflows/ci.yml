@@ -1,0 +1,109 @@
+# ===========================================================================
+# CI: everything that must never regress, on every push.
+#
+# Deliberately runs the OFFLINE eval set only. Those cases -- policy verdicts,
+# retrieval ranking, tenancy isolation -- are deterministic, free and fast, so
+# they can gate every commit. Online answer-quality cases need a live model and
+# run before a release instead; a pipeline that needed an API key to test
+# tenancy would end up disabled.
+#
+# The eval step distinguishes exit code 2 (a tenancy failure -- a security
+# incident) from 1 (a quality regression), because those deserve different
+# urgency.
+# ===========================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # UTF8 is explicit. A WIN1252 database cannot store the corpus, and the
+        # failure is silent text corruption rather than an error.
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://parcelpilot_app:ci_password@127.0.0.1:5432/parcelpilot
+      ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      # No model in CI. Retrieval degrades to lexical-only, which is a tested
+      # mode, and the offline eval set does not need generation.
+      LLM_PROVIDER: "null"
+      EMBEDDING_BACKEND: none
+      JWT_SECRET: ci-only-not-a-real-secret
+      LOG_FORMAT: json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check agentcore/ app/ tests/ eval/
+
+      - name: Bootstrap and migrate
+        run: |
+          python -m agentcore.cli db bootstrap
+          python -m agentcore.cli db migrate
+
+      - name: Migration drift check
+        # Non-zero if an applied migration was edited: the running schema would
+        # no longer match the reviewed one.
+        run: python -m agentcore.cli db status
+
+      - name: Ingest corpus (lexical-only)
+        run: python -m agentcore.cli ingest run --no-embeddings
+
+      - name: Validate policy pack against the corpus
+        # Fails if a parameter's quote no longer appears in the document it
+        # cites -- the drift check that stops a stale rule shipping silently.
+        run: python -m agentcore.cli policy validate
+
+      - name: Tests
+        run: pytest tests/ -q
+
+      - name: Golden eval (offline)
+        run: python -m agentcore.cli eval run --offline
+
+      - name: Readiness
+        run: python -m agentcore.cli db health
+
+      # The frontend hand-rolls SSE framing, because EventSource cannot send an
+      # Authorization header. A CRLF-versus-LF mistake there made the product
+      # completely unusable while every check above stayed green: the backend was
+      # correct and its tests were correct, and the defect lived in the byte-level
+      # contract between the two. Per-component tests cannot see that seam.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend deps
+        run: npm ci --prefix frontend
+
+      - name: Frontend tests
+        run: npm run test --prefix frontend
+
+      - name: Frontend build
+        run: npm run build --prefix frontend

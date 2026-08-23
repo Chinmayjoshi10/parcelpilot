@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Calquity: dark, institutional, precision-driven. The visual language is
+ * doing a job here -- authority and freshness are encoded in colour, so a
+ * reader can see at a glance whether an answer rests on a contract or on a
+ * superseded policy.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #080a0f;
+  color: #f8fafc;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers and timings are monospaced so step durations line up vertically and
+   a reader can scan them as a column rather than reading each one. */
+.tabular {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .glass {
+    @apply bg-surface/70 border border-white/[0.06] backdrop-blur-md shadow-glass;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]
+           font-medium uppercase tracking-wide;
+  }
+
+  /* Citation chips. Superscript, emerald, and clickable -- the affordance says
+     "there is evidence behind this, and you can see it". */
+  .cite {
+    @apply relative -top-[2px] mx-[1px] inline-flex h-4 min-w-4 items-center
+           justify-center rounded border border-verified/40 bg-verified/10 px-1
+           align-super text-[10px] font-semibold text-verified transition-colors
+           hover:bg-verified/25 hover:border-verified;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-edge bg-base/60 px-3 py-2 text-sm
+           text-ink placeholder-muted/50 outline-none transition
+           focus:border-active/60 focus:ring-1 focus:ring-active/30;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2
+           text-sm font-semibold transition active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-verified text-base hover:bg-verified/90;
+  }
+
+  .btn-ghost {
+    @apply btn border border-edge text-muted hover:border-active/50 hover:text-ink;
+  }
+
+  .btn-danger {
+    @apply btn border border-breach/40 text-breach hover:bg-breach/10;
+  }
+}
+
+/* Scrollbars, restrained. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 6px;
+  border: 2px solid #080a0f;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* The reasoning stream's active step. Subtle -- it should read as "working",
+   not as an alarm. */
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.working {
+  animation: pulse-ring 1.4s ease-in-out infinite;
+}

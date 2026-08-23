@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parcelpilot"
+version = "0.2.0"
+description = "ParcelPilot Agentic Intelligence Infrastructure (Calquity Assessment)"
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Deliberately lean. No torch, no faiss, no pandas, no agent framework.
+# Postgres is the single source of truth for relational data, documents,
+# embeddings, run logs and the action ledger.
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "psycopg[binary,pool]>=3.1.18",
+    "PyMuPDF>=1.24.0",
+    "openpyxl>=3.1.2",
+    "pyyaml>=6.0.1",
+    "structlog>=24.1.0",
+    "httpx>=0.27.0",
+    "pyjwt>=2.8.0",
+    "sse-starlette>=2.1.0",
+    "openai>=1.30.0",
+]
+
+[project.optional-dependencies]
+# Only needed for Vertex AI with a service-account JSON. The API-key and
+# pasted-access-token paths need nothing extra.
+vertex = ["google-auth>=2.30.0"]
+# Only needed if you want to embed locally instead of via an API.
+# Pulls torch (~2.5 GB) -- opt in on purpose, never on the default path.
+local-embeddings = ["sentence-transformers>=2.7.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+parcelpilot = "agentcore.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agentcore*", "app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning:agentcore.*"]

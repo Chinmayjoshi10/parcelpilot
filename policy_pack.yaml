@@ -1,0 +1,259 @@
+# ===========================================================================
+# ParcelPilot policy pack
+#
+# Every number the system is willing to act on, and the clause it comes from.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# An LLM must never compute a fee. Fees, SLA windows and credit eligibility are
+# arithmetic over structured data against a reviewed parameter, so the arithmetic
+# lives in agentcore/policy/rules.py and the parameters live here. The model
+# routes the question and explains the result; it does not decide it. Same
+# inputs, same verdict, every time.
+#
+# WHY THE QUOTES MATTER
+# ---------------------
+# Each parameter carries `source_quote` -- the exact clause text. On every
+# `parcelpilot policy validate` run, each quote is located verbatim in the cited
+# document's chunks. Three things follow:
+#
+#   1. A parameter cannot drift from its source. Edit the SOP so the clause no
+#      longer says "30 minutes", and validation FAILS -- loudly, in CI -- instead
+#      of the engine quietly applying a stale rule for months.
+#   2. Every decision cites a real span of a real document. The chunk_id and
+#      character offsets are resolved at validation time, so a verdict points at
+#      the operative clause rather than at a document in general.
+#   3. Review is meaningful. A reviewer checks a number against a quote, not
+#      against a claim about a PDF.
+#
+# HOW TO ADD A PARAMETER
+# ----------------------
+# Copy the clause text verbatim from the document (line breaks may be collapsed
+# to spaces -- PDF wrapping is a layout artifact, not content -- but not a single
+# word may change). Then run `parcelpilot policy validate`.
+# ===========================================================================
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Defaults: apply to every account with no overriding agreement.
+# ---------------------------------------------------------------------------
+default:
+  source_document: 03_Cancellation_and_Service_Credit_SOP_v4.pdf
+
+  parameters:
+    - id: cancellation.free_window_minutes
+      value: 30
+      unit: minutes
+      description: >
+        Grace period after booking during which a BOOKED, not-yet-picked-up
+        shipment may be cancelled with no fee.
+      source_quote: "No fee within 30 minutes of booking."
+
+    - id: cancellation.fee_amount
+      value: 250
+      unit: INR
+      description: Fee charged when cancellation falls outside the free window.
+      source_quote: >-
+        After 30 minutes, charge INR 250 unless a customer agreement explicitly
+        waives the cancellation fee.
+
+    - id: cancellation.fee_waived
+      value: false
+      unit: boolean
+      description: >
+        Whether the account's agreement waives the cancellation fee entirely.
+        False by default; an agreement must say so explicitly.
+      source_quote: >-
+        After 30 minutes, charge INR 250 unless a customer agreement explicitly
+        waives the cancellation fee.
+
+    - id: cancellation.picked_up_blocked
+      value: true
+      unit: boolean
+      description: >
+        A picked-up shipment is not cancellable; the return-to-origin workflow
+        applies instead. This is why the Northstar fee waiver does not extend to
+        ORD-1002 -- the waiver covers BOOKED before pickup only.
+      source_quote: >-
+        PICKED_UP: Do not cancel. Use the return-to-origin workflow if the
+        customer wants the parcel returned.
+
+    - id: credit.delay_threshold_hours
+      value: 2
+      unit: hours
+      description: >
+        How far past the END of the scheduled pickup window a pickup must be
+        before a service credit is due. Measured from window end, not from
+        booking.
+      source_quote: >-
+        a customer is eligible for a service credit when the pickup is more than
+        2 hours past the end of the scheduled pickup window, the carrier is at
+        fault, and there is no customer-caused issue
+
+    - id: credit.mode
+      value: lower_of
+      unit: enum
+      description: >
+        lower_of -> min(flat_cap, percent of shipment fee). fixed -> a flat
+        amount from an agreement.
+      source_quote: "The default credit is the lower of INR 500 or 10% of the shipment fee."
+
+    - id: credit.flat_cap
+      value: 500
+      unit: INR
+      source_quote: "The default credit is the lower of INR 500 or 10% of the shipment fee."
+
+    - id: credit.percent_of_fee
+      value: 10
+      unit: percent
+      source_quote: "The default credit is the lower of INR 500 or 10% of the shipment fee."
+
+    - id: credit.manager_approval_above
+      value: 1000
+      unit: INR
+      description: >
+        Above this, the prepared action requires manager approval rather than
+        ordinary confirmation.
+      source_quote: "Any individual credit above INR 1,000 requires manager approval."
+
+# ---------------------------------------------------------------------------
+# SLA first-response targets.
+#
+# Declared here rather than hardcoded in the dashboard for the same reason as
+# everything else: a breach warning that cites a clause is actionable, and one
+# that cites a constant in Python is an assertion. The proactive dashboard
+# resolves these per account, so Northstar's contracted 15 minutes is what
+# their tickets are measured against -- not the 30-minute default.
+#
+# KNOWN SIMPLIFICATION: agreements quoting "business hours" are treated as
+# wall-clock minutes here. A real deployment needs a business-calendar
+# implementation (working days, holidays, the customer's timezone). The
+# dashboard labels any target derived from a business-hours clause so nobody
+# mistakes the two.
+# ---------------------------------------------------------------------------
+    # These live in the support policy, not the SOP, so they name their own
+    # source document.
+    # Lets the dashboard detect the TKT-451 contradiction: an agent told
+    # LumenWorks that Growth supports only 3,000 rows. The product limit is
+    # 5,000; 3,000 is where a KNOWN ISSUE starts. Two different facts, and the
+    # historical answer conflated them.
+    - id: product.bulk_upload_max_rows
+      value: 5000
+      unit: rows
+      source_document: 04_Product_Operations_Guide_and_Known_Issues.pdf
+      source_quote: "Supported file size is up to 5,000 rows per CSV."
+
+    - id: product.bulk_upload_known_issue_rows
+      value: 3000
+      unit: rows
+      description: >
+        Where KI-208 failures begin. Not a limit -- a defect. Telling a customer
+        this is the supported maximum is the TKT-451 error.
+      source_document: 04_Product_Operations_Guide_and_Known_Issues.pdf
+      source_quote: >-
+        Some Growth and Enterprise customers experience intermittent failures on
+        CSV uploads above approximately 3,000 rows, even though the supported
+        product limit remains 5,000 rows.
+
+    - id: sla.p1_response_minutes
+      value: 30
+      unit: minutes
+      description: Default first-response target for a P1 on the Enterprise plan.
+      source_document: 01_Support_Policy_v3_CURRENT.pdf
+      source_quote: "Enterprise 30 minutes, 24x7"
+
+    - id: sla.p1_clock
+      value: wall_clock
+      unit: enum
+      description: >
+        wall_clock -> 24x7 elapsed time. business_hours -> the clause is stated
+        in business hours, which this build approximates as wall-clock and
+        flags.
+      source_document: 01_Support_Policy_v3_CURRENT.pdf
+      source_quote: "Enterprise 30 minutes, 24x7"
+
+# ---------------------------------------------------------------------------
+# Account overrides. Each entry must name the agreement that grants it, and the
+# agreement must be the one accounts.contract_file attributes to that account --
+# checked at validation time, so an override cannot be attached to the wrong
+# customer.
+# ---------------------------------------------------------------------------
+accounts:
+  ACCT-001:
+    source_document: 05_Northstar_Logistics_Enterprise_Agreement.pdf
+    parameters:
+      # The TKT-450 trap. A human agent told Northstar that INR 250 applied
+      # after 30 minutes, which is what the default SOP says -- and is wrong for
+      # this account, because their agreement waives the fee outright. The
+      # deterministic rule reaches the right answer whether or not retrieval
+      # happens to surface the contract.
+      - id: cancellation.fee_waived
+        value: true
+        unit: boolean
+        source_quote: >-
+          Northstar may cancel any BOOKED shipment before pickup with no
+          cancellation fee, regardless of how long ago the shipment was booked.
+
+      - id: credit.monthly_cap
+        value: 5000
+        unit: INR
+        description: Aggregate monthly ceiling across all credits for this account.
+        source_quote: "Monthly aggregate service credits are capped at INR 5,000."
+
+      # Tighter than the 30-minute default. The dashboard measures Northstar's
+      # open P1s against 15 minutes, which is the point of resolving SLA per
+      # account rather than per plan.
+      - id: sla.p1_response_minutes
+        value: 15
+        unit: minutes
+        source_quote: "P1: 15 minutes, 24x7"
+
+  ACCT-002:
+    source_document: 06_LumenWorks_Service_Agreement.pdf
+    parameters:
+      # This clause replaces BOTH the threshold and the amount, which is why
+      # they are declared together and cite the same sentence. Applying one
+      # without the other would produce a confidently wrong number.
+      - id: credit.delay_threshold_hours
+        value: 4
+        unit: hours
+        source_quote: >-
+          If a pickup is more than 4 hours past the end of the scheduled pickup
+          window, the carrier is at fault, and the customer is not at fault,
+          LumenWorks receives a fixed INR 300 service credit.
+
+      - id: credit.mode
+        value: fixed
+        unit: enum
+        source_quote: >-
+          This clause replaces the default failed-pickup credit amount and
+          timing threshold in the SOP.
+
+      - id: credit.fixed_amount
+        value: 300
+        unit: INR
+        source_quote: >-
+          LumenWorks receives a fixed INR 300 service credit.
+
+      # Stated explicitly so the absence of a waiver is a recorded fact with a
+      # citation, not an inference from silence. "The contract does not mention
+      # it" and "the contract says it does not apply" are different answers.
+      - id: cancellation.fee_waived
+        value: false
+        unit: boolean
+        source_quote: >-
+          No special cancellation-fee waiver applies. Use the current
+          ParcelPilot Cancellation & Service Credit SOP.
+
+      # Stated in BUSINESS hours. Approximated as wall-clock here and labelled
+      # as such -- see the simplification note in the defaults above.
+      - id: sla.p1_response_minutes
+        value: 120
+        unit: minutes
+        source_quote: "P1: 2 business hours"
+
+      - id: sla.p1_clock
+        value: business_hours
+        unit: enum
+        source_quote: "No weekend or after-hours support coverage."
