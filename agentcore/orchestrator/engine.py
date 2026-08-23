@@ -624,11 +624,19 @@ class Orchestrator:
         # the model's job: a row is its own source, so it needs no citation, and
         # asking a citation-bound component to narrate one made it answer with
         # policy definitions instead of naming a single ticket.
-        answer_tables = result_tables.from_findings(issues, cohort_rows)
-        if not answer_tables and cohort_rows:
+        # The plain listing comes FIRST, because it is what was asked. Findings
+        # follow as "and here is what needs attention".
+        #
+        # Showing only findings was wrong for "show all tickets": it returned the
+        # three breached tickets and silently dropped the other two open ones, so
+        # a request for everything answered with a subset. A table that quietly
+        # filters is worse than no table -- the reader has no way to know it did.
+        answer_tables = []
+        if cohort_rows:
             listing = result_tables.from_cohort(cohort_rows)
             if listing is not None:
-                answer_tables = [listing]
+                answer_tables.append(listing)
+        answer_tables.extend(result_tables.from_findings(issues, cohort_rows))
 
         # Detector findings carry clauses too, for the same reason and with the
         # same consequence if they are left out.

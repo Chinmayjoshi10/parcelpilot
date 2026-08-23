@@ -309,3 +309,66 @@ class TestResultTables:
         )
         row = tables.from_findings([issue], [])[0].rows[0]
         assert any("(contract)" in cell for cell in row)
+
+
+class TestListingPhrasings:
+    """A person typing into a box does not consult our keyword list.
+
+    The cohort detector began as exact phrases — "show me all", "across
+    accounts", "open tickets". "show all tickets", the most obvious way anyone
+    would ask, matched none of them, and nor did "list all tickets", "give me the
+    tickets" or "what are the current tickets". Seven of twelve plain phrasings
+    fell through to `doc_search`, which cannot answer a question about rows, so
+    the run refused.
+
+    Matching the shape — a plural record noun plus a listing signal — catches
+    phrasings nobody enumerated, which is the point. These cases are the record
+    of what real wording looks like.
+    """
+
+    LISTING = [
+        "show all tickets",
+        "show me all tickets",
+        "list all tickets",
+        "all tickets",
+        "show tickets",
+        "give me the tickets",
+        "what tickets are open",
+        "what are the current tickets",
+        "show me the ticket list",
+        "show me every account",
+        "which orders are overdue",
+        "how many tickets are open",
+        "open tickets please",
+        "show all open P1 tickets across accounts",
+    ]
+
+    #: Questions about ONE thing, or about a rule. A cohort query here is a
+    #: wasted round trip at best and a confusing table at worst.
+    NOT_LISTING = [
+        "Can I cancel ORD-1001 without a cancellation fee?",
+        "What is the cancellation fee on ORD-2001?",
+        "What is the supported bulk upload row limit?",
+        "Please escalate TKT-501",
+        "What is the escalation policy for P2?",
+        "Is ORD-2002 eligible for a credit?",
+        "What is my first-response target for a P1 outage?",
+        "Why did my bulk upload CSV with 3,500 rows fail?",
+        "A pickup for ORD-2002 is late because of carrier fault. Do we owe a credit?",
+        "What customs paperwork do I need for Germany?",
+    ]
+
+    def test_plain_listing_phrasings_reach_the_data(self):
+        for question in self.LISTING:
+            planned = _tools(question)
+            assert "cohort_query" in planned or "issue_scan" in planned, question
+
+    def test_single_record_and_rule_questions_do_not(self):
+        for question in self.NOT_LISTING:
+            assert "cohort_query" not in _tools(question), question
+
+    def test_naming_a_record_beats_the_listing_shape(self):
+        """"Show me ORD-1001" wants that order, not every order."""
+        planned = _tools("show me ORD-1001")
+        assert "cohort_query" not in planned
+        assert "data_query" in planned

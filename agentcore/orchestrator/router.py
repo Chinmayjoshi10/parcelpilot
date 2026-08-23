@@ -140,16 +140,31 @@ _CREDIT_TERMS = (
 )
 
 
-#: Questions about a POPULATION rather than a record. These need the
-#: deterministic detectors or a cohort query, because the answer lives in a table
-#: and `doc_search` will find nothing citable -- which is exactly how "show me
-#: all open P1 tickets across accounts" and "is TKT-501 an SLA breach?" both came
-#: back as `low_confidence` while the dashboard answered them correctly.
-_COHORT_TERMS = (
-    "all open", "all the open", "across accounts", "every account", "any account",
-    "which tickets", "what tickets", "how many tickets", "list the tickets",
-    "list tickets", "open tickets", "show me all", "outstanding tickets",
-    "unresolved", "queue", "backlog",
+#: Questions about a POPULATION rather than one record.
+#:
+#: This started as a list of exact phrases -- "show me all", "across accounts",
+#: "open tickets" -- and it was too literal to be useful. "show all tickets", the
+#: most obvious way anyone would ask, matched none of them; so did "list all
+#: tickets", "give me the tickets", and "what are the current tickets". Seven of
+#: twelve plain phrasings fell through to `doc_search`, which cannot answer a
+#: question about rows and so refused.
+#:
+#: Matching the SHAPE is what works: a plural record noun plus a listing signal.
+#: That covers phrasings nobody enumerated in advance, which is the whole point,
+#: because a person typing into a box does not consult the list.
+_PLURAL_RECORDS = (
+    "tickets", "orders", "shipments", "accounts", "credits", "customers",
+    "escalations", "breaches", "pickups", "issues", "cases",
+)
+
+#: Words that mean "give me a set" -- either an imperative to list, or an
+#: interrogative about a group. Deliberately broad: over-including costs one
+#: cheap indexed query, under-including costs a refusal.
+_LISTING_SIGNALS = (
+    "show", "list", "give", "display", "find", "get", "fetch", "pull",
+    "all", "every", "any", "which", "what", "how many", "how much", "who",
+    "across", "outstanding", "unresolved", "pending", "current", "open",
+    "overview", "summary", "breakdown", "report", "queue", "backlog",
 )
 
 #: Wording that asks for a deterministic verdict the detectors already produce.
@@ -239,8 +254,23 @@ def plan(question: str) -> dict[str, Any]:
     # nothing citable, because "how many open tickets" is not a sentence in any
     # PDF. Row-level security means the same plan is safe for a customer -- they
     # get the same query scoped to their own account.
-    wants_cohort = any(t in lowered for t in _COHORT_TERMS)
-    wants_issues = any(t in lowered for t in _ISSUE_TERMS)
+    # A plural record noun plus a listing signal, and no single record named --
+    # if they typed ORD-1001 they want that record, not a list of everything.
+    names_a_set = any(noun in lowered for noun in _PLURAL_RECORDS)
+    # Singular nouns need a STRONGER signal, because "what is my account plan?"
+    # is one question about one thing while "show me every account" is a listing.
+    # "all" and "every" and "the ... list" carry that weight; "what" does not.
+    if not names_a_set:
+        singular = ("ticket", "order", "shipment", "account", "credit", "case")
+        strong = ("all ", "every ", " list", "list of", "each ")
+        names_a_set = any(n in lowered for n in singular) and any(
+            x in lowered for x in strong
+        )
+    asks_to_list = any(sig in lowered for sig in _LISTING_SIGNALS)
+    wants_cohort = names_a_set and asks_to_list and not unique_ids
+    wants_issues = any(t in lowered for t in _ISSUE_TERMS) or (
+        names_a_set and asks_to_list
+    )
 
     if wants_cohort:
         tools.append({"tool": "cohort_query", "cohort": "open_tickets"})
