@@ -5,6 +5,22 @@ tenancy enforced by the database rather than by application code.
 
 Built for the Calquity AI Infrastructure Assessment.
 
+
+![The customer portal answering the flagship question](docs/images/customer-answer.png)
+
+*Customer portal.* The answer leads with the outcome, then cites the contract
+clause **and** the standard policy it overrides — showing the conflict rather
+than resolving it silently. `[1]` and `[2]` open the exact source paragraph. The
+trace above it collapses to one line once the answer lands.
+
+![The operations console listing records](docs/images/ops-tables.png)
+
+*Operations console.* A question about records is answered **with** the records.
+Those figures come from the deterministic rule engine, not the model, and carry
+no citation chips — because a database row is its own source. `15 min (contract)`
+is the interesting cell: Northstar's agreement set that target, not the plan
+default.
+
 ---
 
 ## The thesis
@@ -289,6 +305,14 @@ than finding them.
   every claim needs a verbatim document quote and a bare table row has none. The
   durable fix is to render rows as a server-authored table beside the answer, the
   way `runs.action_notice` already carries a fact the model may not claim.
+- **The flagship golden case is phrasing-sensitive.** `answer-northstar-no-fee`
+  asks "Can **Northstar** cancel ORD-1001…" and currently cites only the
+  contract, so the golden set sits at 21/22. Ask the same thing as "Can **I**
+  cancel ORD-1001 without a cancellation fee? Explain why." and it cites the
+  contract *and* the ₹250 default it overrides, with the conflict block — the
+  screenshot above is that answer. Naming the company appears to anchor the model
+  on that company's agreement. Retrieval is not the cause: the SOP is the
+  top-ranked candidate and is selected either way.
 - **Verbatim validation cannot cite a flattened table.** The SLA table extracts
   column-major (`Plan / P1 / P2 / P3 / Enterprise / 30 minutes...`), so a
   row-and-column intersection the model reconstructs correctly is not a
