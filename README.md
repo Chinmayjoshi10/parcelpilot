@@ -129,6 +129,28 @@ Then open **http://localhost:5173**.
 and verified against 18.1). `db bootstrap` is the only step that needs a
 superuser connection; nothing at request time does.
 
+### Before a demo, reset the dataset
+
+```powershell
+.\.venv\Scripts\python.exe -m agentcore.cli db reset-demo
+```
+
+Exercising the action ledger really does change data — that is the point of it.
+So a session of testing leaves TKT-501 `escalated`, ORD-1001 `CANCELLED`, credits
+issued and approvals queued, and **nothing fails at the time**. The damage shows
+up later and elsewhere: the SLA detector stops flagging a ticket that is no
+longer open, and the dashboard shows two breaches where the workbook has three.
+
+The worst version is the demo itself. The flagship question is "can I cancel
+ORD-1001?" and the headline internal flow is "escalate TKT-501". Against leftover
+state the system answers *correctly about the wrong world*, which is exactly what
+makes it hard to notice. `conftest._protect_real_dataset` covers pytest; it
+cannot cover a script run by hand, so the restore is a command.
+
+The audit log is deliberately **not** cleared — it is append-only by permission,
+and a reset that could rewrite history would contradict the guarantee it exists
+to demonstrate.
+
 ### If setup goes wrong
 
 | Symptom | Cause | Fix |
@@ -260,21 +282,19 @@ incident, not a percentage point.
 Listed because an evaluator will find them, and finding them listed is better
 than finding them.
 
-- **A purely data-shaped question still refuses.** "List the open tickets" or
-  "which accounts have credit exposure" return `low_confidence`. Every claim
-  needs a verbatim document quote and a table row has none, so the model
-  correctly declines to assert it. The fix is structural, not a prompt tweak:
-  render rows as a server-authored table beside the answer, the way
-  `runs.action_notice` already carries a fact the model may not claim, and let a
-  zero-claim answer stand when findings exist. Questions that combine data with
-  a threshold — "is TKT-501 an SLA breach?" — do work, because the threshold
-  clause is quotable.
-- **Verbatim validation is incompatible with a flattened table.** The SLA table
-  is extracted column-major (`Plan / P1 / P2 / P3 / Enterprise / 30 minutes...`),
-  so the model reconstructs a row-and-column intersection correctly and then
-  cannot cite it — those tokens are not adjacent in the text. No amount of
-  whitespace normalisation helps. The fix belongs at ingestion: emit tables
-  row-wise so a citable span exists.
+- **Some purely data-shaped questions are fragile.** "Show me all open P1
+  tickets across accounts" answers when the detectors return findings, because a
+  finding carries the threshold clause that makes it citable. A question with no
+  governing clause at all and no findings has nothing quotable and will decline —
+  every claim needs a verbatim document quote and a bare table row has none. The
+  durable fix is to render rows as a server-authored table beside the answer, the
+  way `runs.action_notice` already carries a fact the model may not claim.
+- **Verbatim validation cannot cite a flattened table.** The SLA table extracts
+  column-major (`Plan / P1 / P2 / P3 / Enterprise / 30 minutes...`), so a
+  row-and-column intersection the model reconstructs correctly is not a
+  contiguous span. It survives today because two of three claims validate and
+  partial acceptance keeps them; the real fix is emitting tables row-wise at
+  ingest.
 - **No conversation memory.** Threading is durable in the database but nothing
   from earlier turns reaches the agent, so "what about that one?" starts over.
   Deliberately absent rather than half-built: the router decides both tool

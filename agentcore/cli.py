@@ -83,6 +83,86 @@ def _cmd_ingest_run(args: argparse.Namespace) -> int:
     return 1 if report.documents_failed else 0
 
 
+def _cmd_db_reset_demo(args: argparse.Namespace) -> int:
+    """Put the dataset back the way the workbook describes it.
+
+    WHY THIS EXISTS. Exercising the action ledger really does change data --
+    that is the point of it. So a session of testing leaves TKT-501 `escalated`,
+    ORD-1001 `CANCELLED`, credits issued and approvals queued. Nothing fails at
+    the time; the damage surfaces later and somewhere else. The deterministic
+    policy tests start returning INDETERMINATE, the SLA detector stops flagging a
+    ticket that is no longer open, and the dashboard shows two breaches where the
+    workbook has three.
+
+    The worst version is the demo: the flagship question is "can I cancel
+    ORD-1001?" and the headline internal flow is "escalate TKT-501". Run either
+    against leftover state and the system answers CORRECTLY about the wrong
+    world, which is exactly what makes it hard to notice.
+
+    `conftest._protect_real_dataset` covers pytest. It cannot cover a script
+    someone runs by hand, and every ad-hoc verification this project needed was
+    such a script. So the restore is a command: run it before recording anything.
+
+    Re-ingestion is the restore -- structured rows are re-read from the workbook,
+    which is the source of truth -- plus clearing the approvals and effects that
+    testing created. The audit log is deliberately NOT cleared: it is append-only
+    by permission, and a demo reset that could rewrite history would contradict
+    the guarantee it is meant to be demonstrating.
+    """
+    import asyncio
+
+    from agentcore.db import engine
+    from agentcore.ingestion.pipeline import ingest
+    from agentcore.llm.registry import get_embedder
+
+    config = load_config()
+    cleared: dict[str, int] = {}
+    with engine.admin() as conn:
+        # Effects first, then the ledger rows that caused them: `service_credits`
+        # and `follow_ups` both reference an action.
+        for table in ("service_credits", "follow_ups"):
+            cleared[table] = conn.execute(f"DELETE FROM {table}").rowcount  # noqa: S608
+        cleared["pending_actions"] = conn.execute("DELETE FROM pending_actions").rowcount
+        if args.runs:
+            # Optional: the run log is evidence, so it survives by default.
+            cleared["run_steps"] = conn.execute("DELETE FROM run_steps").rowcount
+            cleared["retrieval_candidates"] = conn.execute(
+                "DELETE FROM retrieval_candidates"
+            ).rowcount
+            cleared["runs"] = conn.execute("DELETE FROM runs").rowcount
+            cleared["conversations"] = conn.execute("DELETE FROM conversations").rowcount
+        conn.commit()
+
+    embedder = None if args.no_embeddings else get_embedder()
+    report = asyncio.run(ingest(config, embedder=embedder, activate=True))
+
+    with engine.admin() as conn:
+        tickets = {
+            r["ticket_id"]: r["status"]
+            for r in conn.execute(
+                "SELECT ticket_id, status FROM tickets ORDER BY ticket_id"
+            ).fetchall()
+        }
+        orders = {
+            r["order_id"]: r["status"]
+            for r in conn.execute(
+                "SELECT order_id, status FROM orders ORDER BY order_id"
+            ).fetchall()
+        }
+
+    _emit(
+        {
+            "restored": True,
+            "cleared": cleared,
+            "index_version_id": report.index_version_id,
+            "tickets": tickets,
+            "orders": orders,
+            "audit_log": "preserved (append-only by design)",
+        }
+    )
+    return 1 if report.documents_failed else 0
+
+
 def _cmd_ingest_versions(_args: argparse.Namespace) -> int:
     from agentcore.db.engine import admin
 
@@ -430,6 +510,17 @@ def build_parser() -> argparse.ArgumentParser:
     db_sub.add_parser("health", help="readiness: schema revision and active index").set_defaults(
         func=_cmd_db_health
     )
+    reset_parser = db_sub.add_parser(
+        "reset-demo",
+        help="restore the dataset after testing mutated it (run before a demo)",
+    )
+    reset_parser.add_argument(
+        "--runs",
+        action="store_true",
+        help="also clear the run log and conversations (evidence; kept by default)",
+    )
+    reset_parser.add_argument("--no-embeddings", action="store_true")
+    reset_parser.set_defaults(func=_cmd_db_reset_demo)
 
     ingest_parser = subparsers.add_parser("ingest", help="build the search index")
     ingest_sub = ingest_parser.add_subparsers(dest="command", required=True)
