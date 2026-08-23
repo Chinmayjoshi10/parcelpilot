@@ -454,6 +454,92 @@ class TestForeignAccountMentions:
                 )
                 assert row["x"] is False, name
 
+    def test_a_misspelt_company_name_is_still_detected(self, customer_a):
+        """The guard used to require the name typed exactly.
+
+        Asked "what cancelation terms does lumework have" -- one letter short of
+        LumenWorks -- it did not fire, and the run answered with SIX validated
+        claims about the asker's own contract. Every citation real, every
+        sentence grounded, and the whole answer about the wrong company.
+
+        Same failure as the record-id defect: a guard keyed on the surface form
+        of input inherits every way that form can vary. Users misspell company
+        names, so the comparison is by trigram similarity, not equality.
+        """
+        with engine.scoped(customer_a, read_only=True) as conn:
+            own = fetch_one(
+                conn, "SELECT account_name FROM accounts WHERE account_id = %s", (ACCT_A,)
+            )
+            sibling = "Quillmark Retail"
+            # Drop a letter from the middle of the distinctive word, which is
+            # what a typo actually looks like.
+            typo = sibling.replace("Quillmark", "Quilmark")
+            row = fetch_one(
+                conn,
+                "SELECT app_names_foreign_account(%s) AS x",
+                (f"what cancelation terms does {typo} have",),
+            )
+            assert row["x"] is True, typo
+
+            # And a typo of your OWN name still must not fire: it is your
+            # account, however you spell it.
+            mine = own["account_name"].split()[0]
+            row = fetch_one(
+                conn,
+                "SELECT app_names_foreign_account(%s) AS x",
+                (f"what are {mine[:-1]} terms",),
+            )
+            assert row["x"] is False
+
+    def test_the_vocabulary_of_these_questions_does_not_fire(self, customer_a):
+        """A fuzzy threshold is only defensible with a wide margin.
+
+        These are words that actually appear in the question catalog. If any of
+        them scored close to an account name, the threshold would be tuned
+        rather than justified, and legitimate questions would start refusing.
+        """
+        benign = (
+            "Can I cancel ORD-1001 without a cancellation fee? Explain why.",
+            "What is the standard first-response target for a P1 on Enterprise?",
+            "When is a customer eligible for a failed-pickup service credit?",
+            "What is the supported bulk upload row limit?",
+            "what are my cancellation terms",
+            "is the basis for this shipment fee documented",
+        )
+        with engine.scoped(customer_a, read_only=True) as conn:
+            for question in benign:
+                row = fetch_one(
+                    conn,
+                    "SELECT app_names_foreign_account(%s) AS x",
+                    (question,),
+                )
+                assert row["x"] is False, question
+
+    def test_similarity_agrees_with_pg_trgm_definition(self, customer_a):
+        """The trigram function is written out to avoid an extension dependency.
+
+        A migration that needs CREATE EXTENSION can fail to install on a managed
+        host, and a tenancy guard that fails to install is not running. So the
+        arithmetic is ours, and these are the anchor values it was verified
+        against -- identical to pg_trgm's similarity() on the same inputs.
+        """
+        cases = (
+            ("lumework", "lumenworks", 0.43),
+            ("lumenwork", "lumenworks", 0.75),
+            ("beakon", "beacon", 0.40),
+            ("basis", "axis", 0.10),
+            ("policy", "northstar", 0.00),
+            ("identical", "identical", 1.00),
+        )
+        with engine.scoped(customer_a, read_only=True) as conn:
+            for left, right, expected in cases:
+                row = fetch_one(
+                    conn,
+                    "SELECT app_trigram_similarity(%s, %s) AS s",
+                    (left, right),
+                )
+                assert abs(row["s"] - expected) < 0.01, (left, right, row["s"])
+
     def test_it_matches_on_word_boundaries(self, customer_a):
         """"quill of a feather" must not fire on an account called Quillmark."""
         with engine.scoped(customer_a, read_only=True) as conn:

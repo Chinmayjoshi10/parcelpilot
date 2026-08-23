@@ -887,6 +887,92 @@ keyed on the surface form of input inherits every way that form can vary**, and
 the fix is to key it on something that does not vary — here, the shape of the
 number rather than the spelling of the label.
 
+### 5.14 The same lesson, in a different guard
+
+An hour after §5.13, as ACCT-001:
+
+> **Q** "what cancelation terms does lumework have"
+> **A** "Northstar Logistics, operating under account ACCT-001, has a specific
+> agreement that allows cancellation of any booked shipment before pickup
+> without a cancellation fee…"
+
+Six validated claims, six real citations, one wrong company. `lumework` is
+LumenWorks misspelt, and migration 008's guard matched account names *exactly*,
+so it did not fire.
+
+Third instance in one afternoon of the same root cause: **a guard keyed on the
+surface form of input inherits every way that form can vary.** Names are now
+compared by trigram similarity at a 0.35 threshold, where "lumework" scores 0.43
+and the ordinary vocabulary of these questions — cancelation, shipment, policy,
+terms, logistics, enterprise — scores 0.10 or below.
+
+Two things the existing tests taught me while fixing it:
+
+**Similarity alone does not work.** A test from 008 asserts that *"does the quill
+of a feather matter for palletised freight"* must not fire on an account called
+Quillmark. Fuzzy matching broke it, and not marginally: `quill` against
+`quillmark` scores **0.45 — higher than the real typo**. No threshold separates
+those two cases. What separates them is length: a typo keeps roughly the length
+of the word it fumbles (0–2 characters off), while a word that merely starts like
+a name is four or more short. So an approximate match must be close in shape *and*
+in length; an exact match still counts at any length, which is what keeps "what
+about Axis Labs" firing on its head word.
+
+**Then my own fix regressed the same test.** Joining adjacent words so that
+"lumen works" matches "lumenworks" also manufactured "quillof" out of "quill of",
+two characters from "quillmark". Both halves of a join must now be three
+characters or more. That one test caught me twice inside ten minutes, and it was
+written for neither reason.
+
+`pg_trgm` would have done the similarity in one call and is available on this
+host, but `CREATE EXTENSION` needs privileges the migration role may not have on
+a managed platform — and **a tenancy guard that fails to install is a tenancy
+guard that is not running.** The trigram arithmetic is a dozen lines of SQL,
+verified identical to `similarity()` on every pair tested.
+
+The blind spot is documented in the migration: an abbreviation is not a typo, so
+"what does Lumen charge" still does not fire. That is the deliberate side to fail
+on. A missed refusal answers a question about the wrong company; a false refusal
+blocks a legitimate question and offers a human. Neither is good and they are not
+equally bad.
+
+### 5.15 One rule among thirteen loses to whatever the question emphasises
+
+`answer-northstar-no-fee` went red, and an A/B against the previous definition of
+the guard cleared §5.14 of causing it. The real cause had been visible for a
+while and mislabelled as flakiness:
+
+| Question | Cites |
+|---|---|
+| "Can **I** cancel ORD-1001 without a cancellation fee?" | the agreement **and** the ₹250 default it overrides |
+| "Can **Northstar** cancel ORD-1001 without a cancellation fee?" | the agreement only |
+
+Same routing, same retrieval, same clauses in the prompt. Naming the company
+anchors the model on that company's contract and the second citation disappears.
+
+A user hit the same defect from the other side on the same afternoon: asked *"what
+is the standard first-response target for a P1 on Enterprise?"* the answer was
+"30 minutes" — the plan default — with no mention that this account's agreement
+sets 15. Grounded, cited, and wrong for the reader.
+
+Synthesis rule 7 already said *"when a customer's own agreement overrides a
+general policy, say so explicitly and cite both"*. It was not enough, because a
+general rule competes with everything else in a thirteen-rule prompt and loses to
+whatever the question puts in focus.
+
+So the requirement moved into the `OVERRIDES IN FORCE` block, which is only built
+when an override actually applied. Same pattern as `ACTION PREPARED` and
+`DETECTED ISSUES` (§ prompt rules are neither free nor independent): guidance for
+one situation costs nothing on the runs that never see it and carries far more
+weight on the runs that do. It now names the three things the answer must contain
+— what the agreement allows, the default it replaces *including the figure*, and
+citations for both.
+
+The eval case went from 0/6 to 4/4, and the user's question from one claim to two
+across 4/4 runs. The sentence that makes it stick, and that is now in the prompt:
+citing only the agreement is not false, but it is **unverifiable** — the reader
+cannot tell what was overridden, or that anything was.
+
 ### The defect every gate missed: CRLF
 
 The worst bug in the build, and the most instructive. Symptom, as reported:

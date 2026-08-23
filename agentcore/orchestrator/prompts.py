@@ -466,9 +466,32 @@ def synthesis_user_prompt(
             sections.append(_render_chunk(chunk, "CONTEXT ONLY, not citable"))
 
     if policy and policy.overrides:
+        # Rule 7 already asks for both citations. It is not enough here, and the
+        # eval case `answer-northstar-no-fee` is why: asked "Can I cancel
+        # ORD-1001..." the model cites the agreement AND the default it replaces;
+        # asked "Can NORTHSTAR cancel ORD-1001..." -- same routing, same
+        # retrieval, same clauses -- it anchors on the named company's contract
+        # and drops the second citation. One general rule among thirteen loses to
+        # whatever the question emphasises.
+        #
+        # So the requirement moves into the block that only appears when an
+        # override actually applied, which is the pattern that worked for
+        # ACTION PREPARED and DETECTED ISSUES: guidance for one situation costs
+        # nothing on the runs that never see it, and carries more weight on the
+        # runs that do.
         sections.append("\nOVERRIDES IN FORCE for this account:")
         for note in policy.overrides:
             sections.append(f"- {note.explanation}")
+        sections.append(
+            "An override is only verifiable if the reader can see both halves, "
+            "so this answer MUST:\n"
+            "  - state what this account's agreement allows;\n"
+            "  - state the default it replaces, including the figure the default "
+            "would otherwise have applied;\n"
+            "  - cite BOTH clauses. Both are in the citable sources above.\n"
+            "Citing only the agreement is not false, but it is unverifiable: the "
+            "reader cannot tell what was overridden, or that anything was."
+        )
 
     if not retrieval.groundable and not decisions:
         sections.append(
