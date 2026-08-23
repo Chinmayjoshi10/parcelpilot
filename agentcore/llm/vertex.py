@@ -99,6 +99,46 @@ class _HttpxAuthTransport:
         )
 
 
+def _materialise_credentials(raw: str) -> str:
+    """Write service-account JSON to a private temp file and return its path.
+
+    `google-auth` wants a file, and a managed host gives you an environment
+    variable. Rather than carry a second auth path for hosted deployments, the
+    JSON is written once at startup and everything downstream sees a normal
+    credentials path.
+
+    Mode 0600 and a process-owned temp directory: the file holds a private key,
+    and a world-readable secret on a shared host is worse than no secret at all.
+    Validated as JSON first so a truncated paste fails here, with a clear
+    message, rather than as an opaque 401 on the first question.
+    """
+    import json
+    import os
+    import tempfile
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Paste the "
+            "whole service-account file, including the outer braces."
+        ) from exc
+    if parsed.get("type") != "service_account":
+        raise ConfigError(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON does not look like a service "
+            f"account (type={parsed.get('type')!r})."
+        )
+
+    directory = tempfile.mkdtemp(prefix="parcelpilot-creds-")
+    os.chmod(directory, 0o700)
+    path = os.path.join(directory, "service-account.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(raw)
+    os.chmod(path, 0o600)
+    log.info("credentials_materialised_from_env", project=parsed.get("project_id"))
+    return path
+
+
 class _TokenSource:
     """Supplies a currently-valid bearer token.
 
@@ -159,8 +199,14 @@ class VertexClient:
         )
         self._token_source: _TokenSource | None = None
 
-        if settings.google_application_credentials:
-            self._token_source = _TokenSource(settings.google_application_credentials)
+        credentials_path = settings.google_application_credentials
+        if not credentials_path and settings.google_application_credentials_json:
+            credentials_path = _materialise_credentials(
+                settings.google_application_credentials_json
+            )
+
+        if credentials_path:
+            self._token_source = _TokenSource(credentials_path)
             self._mode = "service_account"
         elif settings.vertex_access_token:
             self._mode = "access_token"
@@ -170,6 +216,8 @@ class VertexClient:
             raise ConfigError(
                 "Vertex needs credentials. Set one of: "
                 "GOOGLE_APPLICATION_CREDENTIALS (service-account JSON path), "
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON (the JSON itself, for "
+                "hosts without a filesystem for secrets), "
                 "VERTEX_ACCESS_TOKEN (from `gcloud auth print-access-token`), "
                 "or LLM_API_KEY (express mode)."
             )

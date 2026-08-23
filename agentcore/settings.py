@@ -75,6 +75,15 @@ class Settings(BaseSettings):
     #: Service-account JSON path. The production path: IAM-governed, and the
     #: token refreshes itself.
     google_application_credentials: str | None = None
+    #: The service-account JSON itself, for hosts that inject environment
+    #: variables but have no filesystem you can put a secret on (Railway,
+    #: Render, Fly, Cloud Run). Written to a private temp file at startup and
+    #: then treated exactly like a credentials path, so there is one code path
+    #: for auth rather than two.
+    #:
+    #: Precedence is deliberate: an explicit PATH wins, because a developer with
+    #: a file on disk means to use it. This is the fallback, not an override.
+    google_application_credentials_json: str | None = None
 
     # --- embeddings ---
     #: "none" is a supported, tested mode: retrieval degrades to lexical-only

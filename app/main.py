@@ -24,13 +24,15 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from agentcore.db import engine
 from agentcore.errors import ParcelPilotError
@@ -198,3 +200,49 @@ async def meta() -> dict[str, Any]:
         "active_index": state.get("active_index"),
         "ready": state.get("ready"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Single-origin deployment
+# ---------------------------------------------------------------------------
+#
+# In development the frontend runs on Vite and proxies /api through, so the two
+# are same-origin and the bearer token stays on a same-origin request. In
+# production we keep that property by serving the built frontend from this app
+# rather than from a separate host.
+#
+# That is not just convenience. Splitting them means cross-origin requests, which
+# means CORS on every call including the SSE stream, and a token travelling to a
+# different origin than the page it came from. One origin removes a whole class
+# of problem for the cost of a static mount.
+#
+# Mounted LAST so every API route above wins; the catch-all below only sees paths
+# no router claimed.
+_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if _DIST.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_DIST / "assets"),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str) -> FileResponse:
+        """Serve the SPA shell for any unclaimed path.
+
+        The console is a single-page app: /contacts and /operations are client
+        routes with no server handler, so a hard refresh on one must still return
+        index.html rather than a 404. An unknown /api/... path has already been
+        handled by the routers above and never reaches here.
+        """
+        candidate = (_DIST / full_path).resolve()
+        # Serve a real file when one exists (favicon, robots.txt), but only from
+        # inside dist -- resolve() plus this check stops ../ escaping the tree.
+        if full_path and candidate.is_file() and _DIST in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(_DIST / "index.html")
+
+    log.info("frontend_mounted", path=str(_DIST))
+else:
+    log.info("frontend_not_built", path=str(_DIST), note="API-only; run npm run build")
