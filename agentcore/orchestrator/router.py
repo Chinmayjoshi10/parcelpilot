@@ -32,7 +32,57 @@ from agentcore.logging import get_logger
 log = get_logger(__name__)
 
 #: Fixed-shape record ids. Case-insensitive because users type them either way.
-RECORD_ID_RE = re.compile(r"\b((?:TKT|ORD|ACCT)-\d+)\b", re.IGNORECASE)
+#: Record identifiers as people actually type them.
+#:
+#: The first version required a literal hyphen: `(?:TKT|ORD|ACCT)-\d+`. Asked
+#: "what is cancelation price of ord 2001" it matched nothing -- so no scoped
+#: lookup ran, the not-visible halt never fired, and the run answered from
+#: general policy as though the order were the caller's. ORD-2001 belongs to a
+#: different customer. Nothing leaked, because no row was ever read, but a
+#: confident answer about someone else's record is the failure this system
+#: exists to prevent, and a guard that depends on punctuation is not a guard.
+#:
+#: So separators are optional, the spoken forms count ("order 2001",
+#: "ticket 501"), and every match normalises to the canonical id. Digits are
+#: bounded at 3-6 and a trailing unit word disqualifies the match, so "after 30
+#: minutes" and "3000 rows" are not mistaken for records.
+_ID_PREFIXES = {
+    "ord": "ORD",
+    "order": "ORD",
+    "tkt": "TKT",
+    "ticket": "TKT",
+    "acct": "ACCT",
+    "account": "ACCT",
+}
+
+_UNIT_WORDS = (
+    "minute", "minutes", "min", "mins", "hour", "hours", "hr", "hrs",
+    "day", "days", "row", "rows", "rupee", "rupees", "inr", "percent",
+)
+
+RECORD_ID_RE = re.compile(
+    r"\b(ord(?:er)?|tkt|ticket|acct|account)"
+    r"[\s\-_.#:]{0,3}"
+    r"(\d{3,6})\b"
+    r"(?!\s*(?:" + "|".join(_UNIT_WORDS) + r")\b)",
+    re.IGNORECASE,
+)
+
+
+def find_record_ids(text: str) -> list[str]:
+    """Canonical record ids named in `text`, in order, without duplicates.
+
+    Deterministic, and incapable of inventing an id: it reports only prefixes
+    and digits the caller actually typed. Whatever it returns is still resolved
+    through the scoped connection, so row-level security -- not this function --
+    decides whether that record exists for this caller.
+    """
+    found: list[str] = []
+    for prefix, digits in RECORD_ID_RE.findall(text or ""):
+        canonical = f"{_ID_PREFIXES[prefix.lower()]}-{digits}"
+        if canonical not in found:
+            found.append(canonical)
+    return found
 
 #: Verbs that mean "do something", as opposed to "tell me something".
 #:
@@ -203,8 +253,7 @@ def plan(question: str) -> dict[str, Any]:
     """
     text = (question or "").strip()
     lowered = text.lower()
-    ids = [i.upper() for i in RECORD_ID_RE.findall(text)]
-    unique_ids = list(dict.fromkeys(ids))
+    unique_ids = find_record_ids(text)
 
     tools: list[dict[str, Any]] = []
     reasons: list[str] = []

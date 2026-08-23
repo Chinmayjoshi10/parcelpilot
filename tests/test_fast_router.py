@@ -7,6 +7,8 @@ these assertions that should fail first and say so.
 
 from __future__ import annotations
 
+import pytest
+
 from agentcore.orchestrator import router
 
 
@@ -372,3 +374,63 @@ class TestListingPhrasings:
         planned = _tools("show me ORD-1001")
         assert "cohort_query" not in planned
         assert "data_query" in planned
+
+
+class TestRecordIdsAsPeopleTypeThem:
+    """A guard keyed on punctuation is not a guard.
+
+    Asked "what is cancelation price of ord 2001" -- no hyphen, lower case --
+    the recogniser matched nothing. So no scoped lookup ran, the not-visible
+    halt never fired, and the run answered from general policy as though
+    ORD-2001 were the caller's order. It belongs to another customer.
+
+    Nothing leaked, because no row was ever read. But the whole point of the
+    halt is that a confident answer about the wrong record is worse than no
+    answer, and the halt was reachable only by callers who typed the id the way
+    the database writes it.
+    """
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            ("what is cancelation price of ord 2001", ["ORD-2001"]),
+            ("Can I cancel ORD-1001 without a cancellation fee?", ["ORD-1001"]),
+            ("tell me about order 2001", ["ORD-2001"]),
+            ("status of ord2001", ["ORD-2001"]),
+            ("What is the cancellation fee on ORD - 2001?", ["ORD-2001"]),
+            ("escalate ticket 501 to P1", ["TKT-501"]),
+            ("look up acct 001 and ORD-1001", ["ACCT-001", "ORD-1001"]),
+            # Order preserved, duplicates collapsed.
+            ("ORD-1001 and ord 1001 again", ["ORD-1001"]),
+        ],
+    )
+    def test_spoken_and_written_forms_both_resolve(self, question, expected):
+        assert router.find_record_ids(question) == expected
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            # Digits that are quantities, not identifiers. Each of these appears
+            # verbatim in the corpus or the question catalog.
+            "After 30 minutes, charge INR 250 unless a customer agreement waives",
+            "the supported limit is 5000 rows",
+            "What is the standard first-response target for a P1 on Enterprise?",
+            "Show me all open P1 tickets across accounts",
+            "issue a credit for 300 rupees",
+            "resolve within 4 hours",
+        ],
+    )
+    def test_quantities_are_not_read_as_records(self, question):
+        assert router.find_record_ids(question) == []
+
+    def test_a_named_record_still_routes_to_a_scoped_lookup(self):
+        """The recogniser only matters because of what it triggers."""
+        planned = _tools("what is cancelation price of ord 2001")
+        assert "data_query" in planned
+
+    def test_engine_and_router_share_one_recogniser(self):
+        """Two copies of this pattern drifted once and could stage an action
+        against a record the halt condition had not checked."""
+        from agentcore.orchestrator import engine
+
+        assert not hasattr(engine, "_RECORD_ID_RE")

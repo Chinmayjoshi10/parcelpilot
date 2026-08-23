@@ -836,6 +836,42 @@ The prose said `[2]` and `[3]` but only `[1]` was listed: `render_prose` numbers
 per unique *span*, the printer deduped per *chunk*. The same clause quoted twice
 is two citations. Both now derive from one numbering.
 
+### 5.13 A safety halt that required correct punctuation
+
+Asked *"what is cancelation price of ord 2001"* — no hyphen, lower case — the
+system answered. It described the caller's own cancellation terms as though
+ORD-2001 were their order. ORD-2001 belongs to a different customer.
+
+Nothing leaked: no row was ever read, and row-level security would have returned
+zero rows if one had been. The failure was upstream of that. Record ids were
+recognised as `(?:TKT|ORD|ACCT)-\d+`, so `ord 2001` matched nothing, no scoped
+lookup was planned, and the `RECORD_NOT_FOUND` halt — which exists precisely so
+that a named-but-invisible record terminates the run — never had an id to fire
+on. The run fell through to general policy and answered confidently about a
+record it had never seen.
+
+The halt was real and tested. It was reachable only by callers who typed an id
+the way the database writes it.
+
+Two things came out of it:
+
+- **Separators are optional and spoken forms count.** `order 2001`, `ord2001`,
+  `ORD - 2001`, `ticket 501` all normalise to the canonical id. Digits are
+  bounded at 3–6 and a trailing unit word disqualifies a match, so *"after 30
+  minutes"*, *"charge INR 250"* and *"5000 rows"* are not read as records.
+- **The pattern existed twice.** `router.py` planned lookups with one copy and
+  `engine.py` recovered ids for the action gate with another. Fixing only the
+  router would have left the planner reading `ord 2001` while the gate still
+  demanded `ORD-2001` — a run could stage an action against a record the halt
+  had never checked. There is now one recogniser, and a test asserts the
+  duplicate is gone.
+
+Found by a user typing the question the way people actually type it, not by a
+test. Every phrasing in the golden set used canonical ids, because the person who
+wrote both the set and the pattern held the same idea of what an id looks like.
+That is the same shape as §5.9: a guard whose author and whose caller disagree
+about the input is not a guard, and the disagreement is invisible from inside.
+
 ### The defect every gate missed: CRLF
 
 The worst bug in the build, and the most instructive. Symptom, as reported:

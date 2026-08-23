@@ -25,7 +25,6 @@ a cursor, and the reasoning trace survives as an auditable artifact.
 from __future__ import annotations
 
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -131,11 +130,11 @@ COHORT_TEMPLATES: dict[str, str] = {
 }
 
 
-#: Record identifiers, which have a fixed shape in this domain. Extracting one
-#: from the user's own words is deterministic and cannot invent an id -- and
-#: whatever it finds is still resolved through the scoped connection, so RLS
-#: decides whether it exists for this caller.
-_RECORD_ID_RE = re.compile(r"\b((?:TKT|ORD|ACCT)-\d+)\b", re.IGNORECASE)
+#: Record ids come from the router's recogniser rather than a second copy of the
+#: pattern. Two copies drift: the router learned to read "ord 2001" while this
+#: file still demanded "ORD-2001", which would let a run stage an action against
+#: a record the halt condition had never checked. A guard and the planner that
+#: feeds it have to agree on what a record id is.
 
 
 #: Retrieval queries that surface the clause justifying each action type. Used
@@ -1167,9 +1166,9 @@ class Orchestrator:
         # Deterministic, and it cannot fabricate: the pattern only matches ids
         # the user actually typed, and the lookup below is RLS-scoped.
         if not record_id:
-            found = _RECORD_ID_RE.findall(question or "")
-            if len(set(found)) == 1:
-                record_id = found[0].upper()
+            found = fast_router.find_record_ids(question or "")
+            if len(found) == 1:
+                record_id = found[0]
 
         if not record_id:
             if len(records) == 1:
