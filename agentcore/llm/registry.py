@@ -136,8 +136,23 @@ def _build_embedder(cfg: Settings) -> Embedder | None:
         )
         return None
 
+    # `google_application_credentials_json` belongs in this list, and its absence
+    # was a deployment-only defect. A managed host has nowhere to put a key FILE,
+    # so `agentcore/llm/vertex.py` accepts the service account as a JSON env var
+    # and materialises it -- which is the documented way to deploy this. But this
+    # check only looked for the PATH, so on the first real deploy it concluded
+    # "no provider credentials are set" and returned None.
+    #
+    # Nothing failed. `ingest run` reported `embedded: 0` with a warning, the
+    # index activated, readiness went green, and dense retrieval was silently
+    # gone -- exactly the shape of degradation this codebase keeps trying to make
+    # loud. Credentials were present the whole time, in the one form the check
+    # could not see.
     if cfg.embedding_backend == "api" and not (
-        cfg.llm_api_key or cfg.vertex_access_token or cfg.google_application_credentials
+        cfg.llm_api_key
+        or cfg.vertex_access_token
+        or cfg.google_application_credentials
+        or cfg.google_application_credentials_json
     ):
         log.warning(
             "embeddings_unavailable",
