@@ -175,6 +175,15 @@ _ISSUE_TERMS = (
     "what should i look at", "anything urgent", "what needs",
 )
 
+#: Which finding kinds are ABOUT a ticket, and which about an order. Asked for
+#: "open P1 tickets", the run returned the ticket breaches AND the owed credits
+#: AND the overdue pickups -- useful on a dashboard, and not what was asked. A
+#: question that names a record type should be answered with that record type.
+_KINDS_BY_SUBJECT: dict[str, tuple[str, ...]] = {
+    "ticket": ("sla_breach", "stale_answer", "recurring_issue"),
+    "order": ("credit_eligible", "pickup_overdue"),
+}
+
 #: Detector kinds, so a question about one thing does not return all six.
 _ISSUE_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("sla_breach", ("sla", "first response", "first-response", "breach", "response target")),
@@ -272,7 +281,14 @@ def plan(question: str) -> dict[str, Any]:
         names_a_set and asks_to_list
     )
 
-    if wants_cohort:
+    # Only planned for TICKET questions: `open_tickets` is the one listing
+    # template, and planning it for "which orders are overdue" answered with a
+    # list of tickets — a table that confidently shows the wrong kind of record.
+    asks_about_orders = any(
+        w in lowered
+        for w in ("order", "orders", "shipment", "shipments", "pickup", "pickups")
+    )
+    if wants_cohort and not asks_about_orders:
         tools.append({"tool": "cohort_query", "cohort": "open_tickets"})
         reasons.append("question about a set of tickets")
 
@@ -282,6 +298,17 @@ def plan(question: str) -> dict[str, Any]:
         kinds = [
             kind for kind, terms in _ISSUE_KINDS if any(t in lowered for t in terms)
         ]
+        # When the wording names no specific concern but DOES name a record
+        # type, narrow to that type rather than returning everything.
+        if not kinds:
+            if any(w in lowered for w in ("ticket", "tickets", "case", "cases")):
+                kinds = list(_KINDS_BY_SUBJECT["ticket"])
+            elif any(
+                w in lowered
+                for w in ("order", "orders", "shipment", "shipments", "pickup", "pickups")
+            ):
+                kinds = list(_KINDS_BY_SUBJECT["order"])
+
         call: dict[str, Any] = {"tool": "issue_scan"}
         if kinds:
             call["kinds"] = kinds

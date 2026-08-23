@@ -39,22 +39,30 @@ from agentcore.types import DataTable
 #: a cluster rather than one record.
 _SPECS: dict[str, dict[str, Any]] = {
     "sla_breach": {
-        "title": "Tickets past their first-response target",
+        # `{n}` is the count and `{of}` the cohort total when one is known. The
+        # title carries the summary because a summary sentence would be DERIVED
+        # from the rows and so has no quote -- the same wall that made the model
+        # answer with policy definitions. A count in a heading needs no citation.
+        "suffix": "past their first-response target",
         "columns": ["Ticket", "Account", "Severity", "Target", "Elapsed", "Over by", "Owner"],
     },
     "credit_eligible": {
-        "title": "Orders owing a service credit",
+        "suffix": "owing a service credit",
         "columns": ["Order", "Account", "Severity", "Amount", "Delay", "Threshold", "Carrier"],
     },
     "pickup_overdue": {
-        "title": "Pickups not collected",
+        "suffix": "not collected",
         "columns": ["Order", "Account", "Severity", "Past window", "Carrier", "Fault"],
     },
     "stale_answer": {
-        "title": "Past answers that contradict current policy",
+        "suffix": "where a past answer contradicts current policy",
         "columns": ["Ticket", "Account", "Severity", "What was said"],
     },
 }
+
+
+#: Whether a kind's subject is a ticket or an order, for the heading's noun.
+_TICKET_KINDS = frozenset({"sla_breach", "stale_answer", "recurring_issue"})
 
 
 def _minutes(value: Any) -> str:
@@ -156,6 +164,16 @@ def from_findings(issues: list[Any], cohort_rows: list[dict[str, Any]]) -> list[
         if r.get("account_id") and r.get("account_name")
     }
 
+    # Subjects actually in the cohort. "2 of 5 open tickets" was wrong for the
+    # stale-answer findings, whose subjects (TKT-450, TKT-451) are CLOSED and so
+    # were never among the five open ones. A denominator is only meaningful when
+    # the findings are a subset of what it counts.
+    cohort_subjects = {
+        str(r.get("ticket_id") or r.get("order_id"))
+        for r in cohort_rows
+        if r.get("ticket_id") or r.get("order_id")
+    }
+
     grouped: dict[str, list[Any]] = {}
     for issue in issues:
         if issue.kind in _SPECS:
@@ -166,9 +184,24 @@ def from_findings(issues: list[Any], cohort_rows: list[dict[str, Any]]) -> list[
         found = grouped.get(kind)
         if not found:
             continue
+        is_ticket = kind in _TICKET_KINDS
+        noun = "ticket" if is_ticket else "order"
+        count = len(found)
+        plural = noun if count == 1 else f"{noun}s"
+        # "3 of 5 open tickets past their target" reads; "3 tickets of 5 open
+        # past their target" does not. The denominator only applies when the
+        # cohort is the same kind of record as the finding.
+        subset_of_cohort = bool(cohort_subjects) and all(
+            str(i.subject_id) in cohort_subjects for i in found
+        )
+        if subset_of_cohort and is_ticket:
+            lead = f"{count} of {len(cohort_rows)} open {plural}"
+        else:
+            lead = f"{count} {plural}"
+        title = f"{lead} {spec['suffix']}"
         tables.append(
             DataTable(
-                title=spec["title"],
+                title=title,
                 columns=spec["columns"],
                 rows=[_row(i, names) for i in found],
                 note=(
